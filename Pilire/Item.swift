@@ -1,18 +1,227 @@
-//
-//  Item.swift
-//  Pilire
-//
-//  Created by Luke on 22.06.2026.
-//
-
 import Foundation
 import SwiftData
 
 @Model
-final class Item {
-    var timestamp: Date
-    
-    init(timestamp: Date) {
-        self.timestamp = timestamp
+final class DayRecord {
+    var date: Date
+    var pillars: [Pillar]
+    var isCompleted: Bool
+    @Relationship(deleteRule: .nullify, inverse: \Building.dayRecord)
+    var buildings: [Building] = []
+
+    init(date: Date = .now) {
+        self.date = Calendar.current.startOfDay(for: date)
+        self.pillars = []
+        self.isCompleted = false
+    }
+
+    var completedCount: Int { pillars.filter(\.isCompleted).count }
+}
+
+struct Pillar: Codable, Identifiable {
+    var id: UUID = UUID()
+    var text: String
+    var isCompleted: Bool = false
+    var order: Int
+    var isFromPool: Bool = false
+    var isHabit: Bool = false             // auto-added from a recurring habit
+    var scheduledAt: Date? = nil          // optional time anchor for the task
+    var calendarEventID: String? = nil    // EventKit event, when exported
+    var woodAwarded: Int = 0              // reward granted on completion (refunded on undo)
+
+    init(text: String, order: Int, isFromPool: Bool = false,
+         isHabit: Bool = false, scheduledAt: Date? = nil) {
+        self.text = text
+        self.order = order
+        self.isFromPool = isFromPool
+        self.isHabit = isHabit
+        self.scheduledAt = scheduledAt
+    }
+
+    // Tolerant decoding: pillars saved before a field existed simply use its
+    // default (SwiftData stores [Pillar] as an encoded blob, so adding a
+    // property would otherwise crash old data with keyNotFound).
+    private enum CodingKeys: String, CodingKey {
+        case id, text, isCompleted, order, isFromPool, isHabit, scheduledAt, calendarEventID, woodAwarded
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id              = try c.decodeIfPresent(UUID.self,   forKey: .id)          ?? UUID()
+        text            = try c.decodeIfPresent(String.self, forKey: .text)        ?? ""
+        isCompleted     = try c.decodeIfPresent(Bool.self,   forKey: .isCompleted) ?? false
+        order           = try c.decodeIfPresent(Int.self,    forKey: .order)       ?? 0
+        isFromPool      = try c.decodeIfPresent(Bool.self,   forKey: .isFromPool)  ?? false
+        isHabit         = try c.decodeIfPresent(Bool.self,   forKey: .isHabit)     ?? false
+        scheduledAt     = try c.decodeIfPresent(Date.self,   forKey: .scheduledAt)
+        calendarEventID = try c.decodeIfPresent(String.self, forKey: .calendarEventID)
+        woodAwarded     = try c.decodeIfPresent(Int.self,    forKey: .woodAwarded)    ?? 0
+    }
+}
+
+@Model
+final class Building {
+    var type: BuildingType
+    var gridX: Int
+    var gridY: Int
+    var builtDate: Date
+    var isComplete: Bool
+    var dayRecord: DayRecord?
+    var rotation: Int = 0        // 0–3 × 90°
+
+    // Customization (future upgrade UI) — 0 = default look
+    var roofColorIndex: Int = 0
+    var facadeIndex: Int = 0
+
+    init(type: BuildingType, gridX: Int, gridY: Int, builtDate: Date = .now, isComplete: Bool = true) {
+        self.type = type
+        self.gridX = gridX
+        self.gridY = gridY
+        self.builtDate = builtDate
+        self.isComplete = isComplete
+    }
+}
+
+// MARK: - Materials
+
+enum Material: String, Codable, CaseIterable, Identifiable {
+    case wood, brick, steel
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .wood:  "Dřevo"
+        case .brick: "Cihly"
+        case .steel: "Ocel"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .wood:  "tree.fill"
+        case .brick: "square.stack.3d.up.fill"
+        case .steel: "gearshape.2.fill"
+        }
+    }
+
+    /// UI tint (r, g, b)
+    var tint: (r: Double, g: Double, b: Double) {
+        switch self {
+        case .wood:  (0.58, 0.42, 0.25)
+        case .brick: (0.80, 0.42, 0.32)
+        case .steel: (0.45, 0.52, 0.60)
+        }
+    }
+
+    /// Coin price for one unit in the exchange.
+    var coinPrice: Int {
+        switch self {
+        case .wood:  10
+        case .brick: 20
+        case .steel: 40
+        }
+    }
+}
+
+struct MaterialCost {
+    var wood: Int = 0
+    var brick: Int = 0
+    var steel: Int = 0
+}
+
+// MARK: - Building types
+
+enum BuildingType: String, Codable, CaseIterable {
+    case cottage, house, barn, well
+    case farm, stables
+    case tavern, blacksmith, market, shop, flowerShop, post
+    case townhall, school, church, fortress, tower
+    case cathedral, castle
+    case skyscraper
+
+    /// Grid footprint (cells along x × cells along z). Anchor = first cell.
+    /// Multi-cell buildings rotate in 90° steps; the second cell swings around
+    /// the anchor (occupancy is rotation-aware).
+    var footprint: (w: Int, l: Int) {
+        switch self {
+        case .tavern, .farm: (2, 1)
+        default:             (1, 1)
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .cottage:    "Chalupa"
+        case .house:      "Rodinný domek"
+        case .barn:       "Stodola"
+        case .well:       "Studna"
+        case .farm:       "Farma"
+        case .stables:    "Stáje"
+        case .shop:       "Obchod"
+        case .flowerShop: "Květinářství"
+        case .post:       "Pošta"
+        case .school:     "Škola"
+        case .tower:      "Věž"
+        case .tavern:     "Hostinec"
+        case .blacksmith: "Kovárna"
+        case .market:     "Tržiště"
+        case .townhall:   "Radnice"
+        case .church:     "Kostel"
+        case .fortress:   "Pevnost"
+        case .cathedral:  "Katedrála"
+        case .castle:     "Hrad"
+        case .skyscraper: "Mrakodrap"
+        }
+    }
+
+    var emoji: String {
+        switch self {
+        case .cottage:    "🏠"
+        case .house:      "🏡"
+        case .barn:       "🏚"
+        case .well:       "⛲"
+        case .farm:       "🌾"
+        case .stables:    "🐎"
+        case .shop:       "🏬"
+        case .flowerShop: "💐"
+        case .post:       "✉️"
+        case .school:     "🎓"
+        case .tower:      "🗼"
+        case .tavern:     "🍺"
+        case .blacksmith: "⚒️"
+        case .market:     "🏪"
+        case .townhall:   "🏛"
+        case .church:     "⛪"
+        case .fortress:   "🏯"
+        case .cathedral:  "🕌"
+        case .castle:     "🏰"
+        case .skyscraper: "🏙"
+        }
+    }
+
+    /// Cena v materiálech (viz implementační plán).
+    var cost: MaterialCost {
+        switch self {
+        case .well:       MaterialCost(wood: 6)
+        case .cottage:    MaterialCost(wood: 10)
+        case .house:      MaterialCost(wood: 12, brick: 4)
+        case .barn:       MaterialCost(wood: 14, brick: 2)
+        case .farm:       MaterialCost(wood: 16, brick: 4)
+        case .stables:    MaterialCost(wood: 18, brick: 6, steel: 1)
+        case .shop:       MaterialCost(wood: 12, brick: 8)
+        case .flowerShop: MaterialCost(wood: 10, brick: 6)
+        case .post:       MaterialCost(wood: 12, brick: 8, steel: 1)
+        case .school:     MaterialCost(wood: 18, brick: 14, steel: 2)
+        case .tower:      MaterialCost(wood: 12, brick: 16, steel: 3)
+        case .tavern:     MaterialCost(wood: 16, brick: 8)
+        case .blacksmith: MaterialCost(wood: 10, brick: 8)
+        case .market:     MaterialCost(wood: 14, brick: 10)
+        case .townhall:   MaterialCost(wood: 16, brick: 12, steel: 2)
+        case .church:     MaterialCost(wood: 18, brick: 14, steel: 3)
+        case .fortress:   MaterialCost(wood: 20, brick: 16, steel: 5)
+        case .cathedral:  MaterialCost(wood: 24, brick: 20, steel: 8)
+        case .castle:     MaterialCost(wood: 28, brick: 24, steel: 12)
+        case .skyscraper: MaterialCost(wood: 30, brick: 30, steel: 20)
+        }
     }
 }

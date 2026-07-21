@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Xcode — user-specific state (keep shared data / SPM Package.resolved)
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+
+# Build output
+DerivedData/
+build/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager (local checkouts only)
+.build/
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+Packages/
