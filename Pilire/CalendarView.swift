@@ -164,8 +164,10 @@ struct CalendarView: View {
 
     private var calendarGrid: some View {
         let days = daysInMonth()
+        // Index-based IDs: the leading/trailing padding cells are all `nil`, so
+        // `id: \.self` would repeat nil and give SwiftUI duplicate IDs.
         return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
-            ForEach(days, id: \.self) { date in
+            ForEach(Array(days.enumerated()), id: \.offset) { _, date in
                 if let date {
                     let rec = record(for: date)
                     DayCell(date: date, record: rec, isToday: cal.isDateInToday(date))

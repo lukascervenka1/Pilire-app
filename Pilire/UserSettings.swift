@@ -14,7 +14,7 @@ final class UserSettings {
 
     // Momentum 0–100 — soft streak: grows on active days, decays slowly, never punishes
     var momentum: Double = 0
-    var momentumDate: Date?        // last day decay was reconciled
+    var momentumDate: Date?        // last day the app was opened (active day)
 
     // Map expansion tier: 0 = 12×12, 1 = 16×16, 2 = 20×20, 3 = 24×24
     var mapTier: Int = 0
@@ -65,29 +65,31 @@ final class UserSettings {
 
     // MARK: - Momentum
 
-    var momentumMultiplier: Double { 1 + momentum / 100 }   // 1.0 ... 2.0
+    /// Momentum is a small, bounded "how regularly do you show up" meter:
+    /// +1 each day the app is opened, −1 per missed day, capped low so it never
+    /// balloons into a silly number.
+    static let momentumMax: Double = 30
+    static let momentumDecayPerMissedDay: Double = 1
 
-    /// Decay −6 for every fully missed day. Call on app open; safe to call repeatedly.
-    func reconcileMomentum(now: Date = .now) {
+    /// Gentle reward multiplier: 1.0× at zero, up to 1.6× at the cap.
+    var momentumMultiplier: Double { 1 + momentum / 50 }
+
+    /// Call once when the app opens. Adds +1 for today (first open of the day)
+    /// and subtracts for any days that were skipped since the last visit.
+    func registerActiveDay(now: Date = .now) {
         let cal = Calendar.current
         let today = cal.startOfDay(for: now)
-        defer { momentumDate = today }
-        guard let lastDone = lastCompletedDate else { return }
 
-        let sinceDone = cal.dateComponents([.day], from: cal.startOfDay(for: lastDone), to: today).day ?? 0
-        let missedTotal = max(0, sinceDone - 1)   // days strictly between last activity and today
-        let alreadyCounted: Int
-        if let md = momentumDate {
-            let sinceAtLastCheck = cal.dateComponents([.day], from: cal.startOfDay(for: lastDone),
-                                                      to: cal.startOfDay(for: md)).day ?? 0
-            alreadyCounted = max(0, sinceAtLastCheck - 1)
-        } else {
-            alreadyCounted = 0
+        if let last = momentumDate {
+            // Already counted today? Nothing to do.
+            if cal.isDate(last, inSameDayAs: today) { return }
+            let gap = cal.dateComponents([.day], from: cal.startOfDay(for: last), to: today).day ?? 0
+            let missed = max(0, gap - 1)   // full days with no visit in between
+            momentum -= Double(missed) * Self.momentumDecayPerMissedDay
         }
-        let newMissed = max(0, missedTotal - alreadyCounted)
-        if newMissed > 0 {
-            momentum = max(0, momentum - 6 * Double(newMissed))
-        }
+        momentum += 1
+        momentum = min(Self.momentumMax, max(0, momentum))
+        momentumDate = today
     }
 
     // MARK: - Rewards
@@ -143,16 +145,15 @@ final class UserSettings {
     /// Okamžitá odměna za splněný task: dřevo (pool tasky +50 %).
     @discardableResult
     func awardTaskWood(isFromPool: Bool) -> Int {
-        reconcileMomentum()
         let base = isFromPool ? 3.0 : 2.0
         let amount = Int((base * momentumMultiplier).rounded())
         woodCount += amount
         return amount
     }
 
-    /// Uzavření dne: cihly/ocel podle počtu splněných + momentum +12.
+    /// Uzavření dne: cihly/ocel podle počtu splněných. Momentum se řídí jen tím,
+    /// jak pravidelně appku otevíráš (viz registerActiveDay), ne uzavřením dne.
     func processDayClose(completedPillars: Int, totalPillars: Int) -> Payout {
-        reconcileMomentum()
         var payout = Payout()
         let mult = momentumMultiplier
 
@@ -162,10 +163,6 @@ final class UserSettings {
 
         brickCount += payout.brick
         steelCount += payout.steel
-
-        let before = momentum
-        momentum = min(100, momentum + 12)
-        payout.momentumGained = momentum - before
 
         // Legacy streak upkeep (data only)
         updateStreak()

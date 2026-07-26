@@ -25,7 +25,16 @@ struct ContentView: View {
     @State private var showOnboarding = false
     @State private var decoToRemove: DecorationNode?
     @State private var animalToTuck: OwnedAnimal?
+    @State private var doghouseToFeed: PlacedDecoration?
+    @State private var doghouseToRename: PlacedDecoration?
+    @State private var kennelName = ""
+    @State private var tappedAnimal: TappedAnimal?
     private let tutorial = Tutorial.shared
+
+    struct TappedAnimal: Identifiable {
+        let id = UUID()
+        let node: AnimalNode
+    }
 
     /// Returns the stored settings, or a transient fallback for the brief first
     /// frame before `ensureSettings()` inserts the real one. Never mutates the
@@ -47,7 +56,12 @@ struct ContentView: View {
             mapView
                 .toolbar(.hidden, for: .tabBar)
                 .tag(0)
-                .onChange(of: tab) { _, newTab in scene.setRendering(active: newTab == 0) }
+                .onChange(of: tab) { _, newTab in
+                    scene.setRendering(active: newTab == 0)
+                    // Coming back to the map: re-read the clock so fires and
+                    // bedtime match real time without restarting the app.
+                    if newTab == 0 { scene.refreshTimeOfDay() }
+                }
             DailyView(settings: settings, onDayCompleted: dayCompleted)
                 .toolbar(.hidden, for: .tabBar)
                 .tag(1)
@@ -91,6 +105,8 @@ struct ContentView: View {
                     placingItem = item
                     scene.isPlacementMode = true
                     scene.isRoadPaintMode = (item == .road)   // roads paint by dragging
+                    // Greenery snaps to the closest of 5 anchors (centre + corners)
+                    scene.placingUsesAnchors = item.canUseCornerAnchor
                     tab = 0
                 },
                 onPurchaseAnimal: { kind in
@@ -158,7 +174,7 @@ struct ContentView: View {
                 // Wait for the splash to fade before presenting the tutorial
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.8) { showOnboarding = true }
             }
-            settings.reconcileMomentum()
+            settings.registerActiveDay()
             if let reward = settings.claimLoginRewardIfNeeded() {
                 withAnimation(.spring(response: 0.35)) { loginToast = reward }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
@@ -220,16 +236,96 @@ struct ContentView: View {
             Text("Přesunout ji můžeš i podržením a tažením.")
         }
         .confirmationDialog(
-            "Uklidit \(animalToTuck?.kind.displayName.lowercased() ?? "") do boudy?",
+            tappedAnimal?.node.associatedAnimal?.displayName ?? "Zvíře",
+            isPresented: Binding(get: { tappedAnimal != nil },
+                                 set: { if !$0 { tappedAnimal = nil } }),
+            titleVisibility: .visible
+        ) {
+            if let t = tappedAnimal {
+                if t.node.isSleeping {
+                    Button("Probudit") { t.node.wake(); tappedAnimal = nil }
+                } else if t.node.hasKennel {
+                    Button("Poslat do boudy") { t.node.sendToKennel(); tappedAnimal = nil }
+                }
+                Button("Uklidit na odpočinek") {
+                    if let a = t.node.associatedAnimal { animalToTuck = a }
+                    tappedAnimal = nil
+                }
+            }
+            Button("Zrušit", role: .cancel) {}
+        } message: {
+            Text("Podrž na něm prst a můžeš ho přenést jinam po mapě.")
+        }
+        .confirmationDialog(
+            "Psí bouda",
+            isPresented: Binding(get: { doghouseToFeed != nil },
+                                 set: { if !$0 { doghouseToFeed = nil } }),
+            titleVisibility: .visible
+        ) {
+            if doghouseToFeed?.hasFood == true {
+                Button("V misce už žrádlo je") {}.disabled(true)
+            } else {
+                Button("Nasypat žrádlo (\(DecorationItem.dogFoodPrice) mincí)") { fillDogBowl() }
+            }
+            Button("Napsat jméno na boudu") {
+                kennelName = doghouseToFeed?.label ?? ""
+                doghouseToRename = doghouseToFeed
+                doghouseToFeed = nil
+            }
+            Button("Odstranit boudu", role: .destructive) {
+                if let dec = doghouseToFeed,
+                   let node = scene.decorationNodes.first(where: { $0.associatedDecoration === dec }) {
+                    doghouseToFeed = nil
+                    decoToRemove = node
+                }
+            }
+            Button("Zrušit", role: .cancel) {}
+        } message: {
+            Text(doghouseToFeed?.hasFood == true
+                 ? "Miska je plná. Za chvíli si pro ni pes přijde."
+                 : "Po setmění tu spí pes. Můžeš mu nasypat do misky.")
+        }
+        .alert("Jméno na boudu", isPresented: Binding(
+            get: { doghouseToRename != nil },
+            set: { if !$0 { doghouseToRename = nil } })
+        ) {
+            TextField("Třeba Rex", text: $kennelName)
+            Button("Uložit") { saveKennelName() }
+            Button("Zrušit", role: .cancel) { doghouseToRename = nil }
+        } message: {
+            Text("Napiš jméno svého psa. Objeví se na cedulce nad boudou.")
+        }
+        .confirmationDialog(
+            "Uklidit \(animalToTuck?.kind.displayName.lowercased() ?? "") na odpočinek?",
             isPresented: Binding(get: { animalToTuck != nil },
                                  set: { if !$0 { animalToTuck = nil } }),
             titleVisibility: .visible
         ) {
-            Button("Uklidit do boudy") { tuckAnimal() }
+            Button("Uklidit na odpočinek") { tuckAnimal() }
             Button("Zrušit", role: .cancel) {}
         } message: {
-            Text("Odpočine si v boudě. Kdykoli ho zase pustíš ven z obchodu, ze sekce Bouda.")
+            Text("Zmizí z mapy a počká v obchodě. Kdykoli ho zase pustíš ven ze sekce Na odpočinku.")
         }
+    }
+
+    private func saveKennelName() {
+        guard let dec = doghouseToRename else { return }
+        doghouseToRename = nil
+        dec.label = kennelName.trimmingCharacters(in: .whitespacesAndNewlines)
+        ctx.saveChanges()
+        scene.decorationNodes.first { $0.associatedDecoration === dec }?.setKennelName(dec.label)
+        Haptics.success()
+    }
+
+    private func fillDogBowl() {
+        guard let dec = doghouseToFeed else { return }
+        doghouseToFeed = nil
+        guard settings.coinBalance >= DecorationItem.dogFoodPrice else { Haptics.warning(); return }
+        settings.coinBalance -= DecorationItem.dogFoodPrice
+        dec.hasFood = true
+        ctx.saveChanges()
+        scene.decorationNodes.first { $0.associatedDecoration === dec }?.setBowlFilled(true)
+        Haptics.success()
     }
 
     private func tuckAnimal() {
@@ -301,9 +397,9 @@ struct ContentView: View {
         .padding(.horizontal, 9).padding(.vertical, 6)
         .background(.regularMaterial, in: Capsule())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Momentum: \(Int(settings.momentum)) ze sta")
+        .accessibilityLabel("Momentum: \(Int(settings.momentum))")
         .resourceInfo(icon: "leaf.fill", tint: .green, "Momentum",
-                      "Roste o 12 za každý uzavřený den a pomalu klesá, když vynecháš. Násobí odměny z pilířů až na dvojnásobek a nikdy tě netrestá.")
+                      "Roste o 1 za každý den, kdy appku otevřeš, a o 1 klesá za vynechaný den. Násobí odměny z pilířů a nikdy tě netrestá.")
     }
 
     private var shopButton: some View {
@@ -337,6 +433,10 @@ struct ContentView: View {
                 Image(systemName: "hand.draw.fill")
                 Text("Táhni prstem a stav cestu (\(DecorationItem.road.cost) mincí za políčko)")
                     .font(.subheadline)
+            } else if let item = placingItem, item.canUseCornerAnchor {
+                Image(systemName: "leaf.fill")
+                Text("Ťukni kam umístit: \(item.displayName). Jde i do rohu mezi políčka.")
+                    .font(.subheadline)
             } else {
                 Text("Ťukni kam umístit: \(placingItem?.displayName ?? "")").font(.subheadline)
             }
@@ -357,6 +457,7 @@ struct ContentView: View {
         placingBuilding = nil
         scene.isPlacementMode = false
         scene.isRoadPaintMode = false
+        scene.placingUsesAnchors = false
     }
 
     /// One road tile painted (drag or tap). Charges coins per tile and keeps
@@ -431,12 +532,26 @@ struct ContentView: View {
 
         scene.onDecorationTapped = { node in
             guard !scene.isPlacementMode else { return }
+            // Tapping the doghouse offers food instead of removal.
+            if node.type == .doghouse, let dec = node.associatedDecoration {
+                doghouseToFeed = dec
+                return
+            }
             decoToRemove = node
         }
 
-        scene.onAnimalHeld = { node in
+        // A pet finished the bowl — clear it.
+        scene.onBowlEmptied = {
+            for d in decorations where d.type == .doghouse && d.hasFood {
+                d.hasFood = false
+                scene.decorationNodes.first { $0.associatedDecoration === d }?.setBowlFilled(false)
+            }
+            ctx.saveChanges()
+        }
+
+        scene.onAnimalTapped = { node in
             guard !scene.isPlacementMode else { return }
-            if let animal = node.associatedAnimal { animalToTuck = animal }
+            tappedAnimal = TappedAnimal(node: node)
         }
 
         scene.onTileTapped = { col, row in
@@ -447,6 +562,9 @@ struct ContentView: View {
                 let fp = type.footprint
                 guard scene.cellsFree(col: col, row: row, w: fp.w, l: fp.l) else { Haptics.warning(); return }
                 guard settings.pay(type.cost) else { Haptics.warning(); return }
+                // A tree on a shared corner never blocks building — it makes way
+                // and half its price comes back.
+                clearCornerGreenery(under: type, col: col, row: row)
                 let b = Building(type: type, gridX: col, gridY: row)
                 if let today = todayRecord() { b.dayRecord = today }
                 ctx.insert(b)
@@ -477,6 +595,44 @@ struct ContentView: View {
             scene.isPlacementMode = false
         }
 
+        // Small greenery: snapped either to a tile centre or a shared tile corner.
+        scene.onAnchorTapped = { anchor in
+            guard let item = placingItem else { return }
+            // Pool items (fruit trees, bushes) roll their look once, on placement.
+            let variant = Int.random(in: 0..<item.variantCount)
+
+            // Try the tapped anchor first, then the next closest free one — so
+            // tapping right beside the fire still gets the bench in nicely.
+            var candidates: [TownScene.Anchor] = [anchor]
+            if let g = scene.lastAnchorPoint {
+                candidates += scene.anchorsByDistance(to: g)
+            }
+
+            for candidate in candidates {
+                switch candidate {
+                case let .corner(cx, cy):
+                    guard scene.cornerFree(cx: cx, cy: cy) else { continue }
+                    let dec = PlacedDecoration(type: item, gridX: cx, gridY: cy,
+                                               isCornerAnchor: true, variant: variant)
+                    ctx.insert(dec)
+                    let node = scene.addDecoration(type: item, gridX: cx, gridY: cy,
+                                                   isCornerAnchor: true, variant: variant)
+                    node.associatedDecoration = dec
+                case let .tile(col, row):
+                    guard (0..<scene.cols).contains(col), (0..<scene.rows).contains(row),
+                          scene.cellsFree(col: col, row: row) else { continue }
+                    let dec = PlacedDecoration(type: item, gridX: col, gridY: row, variant: variant)
+                    ctx.insert(dec)
+                    let node = scene.addDecoration(type: item, gridX: col, gridY: row, variant: variant)
+                    node.associatedDecoration = dec
+                }
+                Haptics.tap()
+                endPlacement()
+                return
+            }
+            Haptics.warning()   // everything nearby is taken
+        }
+
         scene.onPaintCell = { col, row in
             paintRoadCell(col, row)
         }
@@ -484,6 +640,27 @@ struct ContentView: View {
         syncBuildings()
         syncDecorations()
         syncAnimals()
+    }
+
+    /// Remove corner greenery standing where a building is about to go up,
+    /// refunding half the price so the player never loses out.
+    private func clearCornerGreenery(under type: BuildingType, col: Int, row: Int) {
+        let fp = type.footprint
+        var doomed: [DecorationNode] = []
+        for dc in 0..<fp.w {
+            for dr in 0..<fp.l {
+                // Neighbouring cells share corners, so skip anything already listed.
+                for node in scene.cornerDecorations(around: col + dc, row: row + dr)
+                where !doomed.contains(where: { $0 === node }) {
+                    doomed.append(node)
+                }
+            }
+        }
+        for node in doomed {
+            settings.coinBalance += node.type.cost / 2
+            if let dec = node.associatedDecoration { ctx.delete(dec) }
+            scene.removeDecoration(node)
+        }
     }
 
     private func syncAnimals() {
@@ -528,10 +705,23 @@ struct ContentView: View {
     private func syncDecorations() {
         for d in decorations {
             guard !scene.decorationNodes.contains(where: { $0.associatedDecoration === d }) else { continue }
+            if d.isCornerAnchor {
+                guard scene.cornerFree(cx: d.gridX, cy: d.gridY) else { continue }
+                let node = scene.addDecoration(type: d.type, gridX: d.gridX, gridY: d.gridY,
+                                               rotation: d.rotation, isCornerAnchor: true,
+                                               variant: d.variant)
+                node.associatedDecoration = d
+                continue
+            }
             let fp = d.type.footprint
             guard scene.cellsFree(col: d.gridX, row: d.gridY, w: fp.w, l: fp.l) else { continue }
-            let node = scene.addDecoration(type: d.type, gridX: d.gridX, gridY: d.gridY, rotation: d.rotation)
+            let node = scene.addDecoration(type: d.type, gridX: d.gridX, gridY: d.gridY,
+                                           rotation: d.rotation, variant: d.variant)
             node.associatedDecoration = d
+            if d.type == .doghouse {
+                node.setBowlFilled(d.hasFood)
+                node.setKennelName(d.label)
+            }
         }
     }
 

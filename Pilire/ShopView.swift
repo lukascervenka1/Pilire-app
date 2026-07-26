@@ -1,5 +1,150 @@
 import SwiftUI
 import SwiftData
+import SceneKit
+
+// MARK: - Offscreen 3D preview renderer (cached per decoration)
+
+/// Shows the real model in the shop rather than a stand-in symbol, so what you
+/// buy is exactly what you saw. Rendered once per item and cached.
+@MainActor
+enum DecorationPreview {
+    private static var cache: [DecorationItem: UIImage] = [:]
+
+    static func image(for item: DecorationItem) -> UIImage {
+        if let img = cache[item] { return img }
+
+        let scene = SCNScene()
+        scene.background.contents = UIColor.clear
+
+        let model = DecorationFactory.node(for: item)
+        // Centre on the bounding sphere: it never crops, whatever the shape.
+        let (centre, radius) = model.boundingSphere
+        model.position = SCNVector3(-centre.x, -centre.y, -centre.z)
+        scene.rootNode.addChildNode(model)
+
+        let sun = SCNLight()
+        sun.type = .directional
+        sun.intensity = 950
+        sun.color = UIColor(red: 1.0, green: 0.96, blue: 0.88, alpha: 1)
+        let sunNode = SCNNode()
+        sunNode.light = sun
+        sunNode.eulerAngles = SCNVector3(-0.9, -0.6, 0)
+        scene.rootNode.addChildNode(sunNode)
+
+        let amb = SCNLight()
+        amb.type = .ambient
+        amb.intensity = 640
+        amb.color = UIColor(red: 0.85, green: 0.90, blue: 0.96, alpha: 1)
+        let ambNode = SCNNode()
+        ambNode.light = amb
+        scene.rootNode.addChildNode(ambNode)
+
+        // Exactly the map's camera rig, so an icon looks like the piece does in
+        // the town rather than something viewed from an odd angle.
+        let cam = SCNCamera()
+        cam.usesOrthographicProjection = true
+        cam.orthographicScale = Double(radius * 1.05)
+        let camNode = SCNNode()
+        camNode.camera = cam
+        camNode.position = SCNVector3(0, 0, 12)
+        let rig = SCNNode()
+        rig.eulerAngles = SCNVector3(-0.62, Float.pi / 4, 0)
+        rig.addChildNode(camNode)
+        scene.rootNode.addChildNode(rig)
+
+        let renderer = SCNRenderer(device: nil, options: nil)
+        renderer.scene = scene
+        renderer.pointOfView = camNode
+        let img = renderer.snapshot(atTime: 0,
+                                    with: CGSize(width: 240, height: 240),
+                                    antialiasingMode: .multisampling4X)
+        cache[item] = img
+        return img
+    }
+}
+
+// MARK: - Animal thumbnails (rendered from the real rigged models)
+
+@MainActor
+enum AnimalPreview {
+    private static var cache: [AnimalKind: UIImage] = [:]
+
+    static func image(for kind: AnimalKind) async -> UIImage? {
+        if let img = cache[kind] { return img }
+
+        // The glTF loads asynchronously, so the row shows a symbol until it lands.
+        let visual: SCNNode = await withCheckedContinuation { cont in
+            AnimalModelLoader.loadRig(kind) { node, _ in cont.resume(returning: node) }
+        }
+
+        let scene = SCNScene()
+        scene.background.contents = UIColor.clear
+
+        // Models arrive normalised (feet on y = 0, ~0.7 tiles long), so frame
+        // them by hand — a skinned mesh's bounding box can't be trusted.
+        visual.position.y -= 0.22
+        scene.rootNode.addChildNode(visual)
+
+        let sun = SCNLight()
+        sun.type = .directional
+        sun.intensity = 900
+        sun.color = UIColor(red: 1.0, green: 0.96, blue: 0.88, alpha: 1)
+        let sunNode = SCNNode()
+        sunNode.light = sun
+        sunNode.eulerAngles = SCNVector3(-0.8, -0.7, 0)
+        scene.rootNode.addChildNode(sunNode)
+
+        let amb = SCNLight()
+        amb.type = .ambient
+        amb.intensity = 680
+        amb.color = UIColor(red: 0.86, green: 0.90, blue: 0.96, alpha: 1)
+        let ambNode = SCNNode()
+        ambNode.light = amb
+        scene.rootNode.addChildNode(ambNode)
+
+        // Same isometric rig as the map and the decoration icons.
+        let cam = SCNCamera()
+        cam.usesOrthographicProjection = true
+        cam.orthographicScale = 0.46
+        let camNode = SCNNode()
+        camNode.camera = cam
+        camNode.position = SCNVector3(0, 0, 12)
+        let rig = SCNNode()
+        rig.eulerAngles = SCNVector3(-0.45, Float.pi / 4, 0)
+        rig.addChildNode(camNode)
+        scene.rootNode.addChildNode(rig)
+
+        let renderer = SCNRenderer(device: nil, options: nil)
+        renderer.scene = scene
+        renderer.pointOfView = camNode
+        let img = renderer.snapshot(atTime: 0,
+                                    with: CGSize(width: 240, height: 240),
+                                    antialiasingMode: .multisampling4X)
+        cache[kind] = img
+        return img
+    }
+}
+
+struct AnimalThumb: View {
+    let kind: AnimalKind
+    let tint: Color
+    @State private var image: UIImage?
+
+    var body: some View {
+        ZStack {
+            if let image {
+                Image(uiImage: image).resizable().scaledToFit().padding(1)
+            } else {
+                Image(systemName: kind.symbolName)
+                    .font(.title3)
+                    .foregroundStyle(tint)
+            }
+        }
+        .frame(width: 48, height: 48)
+        .background(tint.opacity(0.16), in: RoundedRectangle(cornerRadius: Theme.rowRadius))
+        .task { image = await AnimalPreview.image(for: kind) }
+    }
+}
 
 struct ShopView: View {
     @Environment(\.dismiss) private var dismiss
@@ -84,7 +229,7 @@ struct ShopView: View {
                 } header: {
                     Text("Zoo")
                 } footer: {
-                    Text("Zvíře se po koupi nastěhuje na mapu a začne se procházet. Chodí po loukách i cestách, obchází domy a rádo si žije po svém. Na mapě ho dotykem probudíš, podržením uklidíš do boudy.")
+                    Text("Zvíře se po koupi nastěhuje na mapu a začne se procházet. Chodí po loukách i cestách, obchází domy a rádo si žije po svém. Ťukni na něj a dá se probudit nebo poslat do boudy, podržením ho přeneseš jinam.")
                 }
 
                 if !tuckedAnimals.isEmpty {
@@ -98,9 +243,9 @@ struct ShopView: View {
                             )
                         }
                     } header: {
-                        Text("Bouda")
+                        Text("Na odpočinku")
                     } footer: {
-                        Text("Zvířata, která teď odpočívají. Dej jim jméno, pusť je zpět na mapu, nebo se s nimi rozluč.")
+                        Text("Zvířata, která teď odpočívají mimo mapu. Dej jim jméno, pusť je zpět, nebo se s nimi rozluč.")
                     }
                 }
 
@@ -169,11 +314,7 @@ struct DoghouseRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: animal.kind.symbolName)
-                .font(.title3)
-                .foregroundStyle(tintColor)
-                .frame(width: 42, height: 42)
-                .background(tintColor.opacity(0.16), in: RoundedRectangle(cornerRadius: Theme.rowRadius))
+            AnimalThumb(kind: animal.kind, tint: tintColor)
 
             VStack(alignment: .leading, spacing: 1) {
                 TextField(animal.kind.displayName, text: $animal.name)
@@ -221,11 +362,7 @@ struct AnimalShopRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            Image(systemName: kind.symbolName)
-                .font(.title3)
-                .foregroundStyle(tintColor)
-                .frame(width: 42, height: 42)
-                .background(tintColor.opacity(0.16), in: RoundedRectangle(cornerRadius: Theme.rowRadius))
+            AnimalThumb(kind: kind, tint: tintColor)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(kind.displayName).fontWeight(.semibold)
@@ -264,10 +401,11 @@ struct ShopRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            Image(systemName: item.symbolName)
-                .font(.title3)
-                .foregroundStyle(tintColor)
-                .frame(width: 42, height: 42)
+            Image(uiImage: DecorationPreview.image(for: item))
+                .resizable()
+                .scaledToFit()
+                .padding(2)
+                .frame(width: 48, height: 48)
                 .background(tintColor.opacity(0.12), in: RoundedRectangle(cornerRadius: Theme.rowRadius))
 
             VStack(alignment: .leading, spacing: 2) {

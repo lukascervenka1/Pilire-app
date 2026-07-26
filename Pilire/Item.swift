@@ -137,7 +137,13 @@ enum BuildingType: String, Codable, CaseIterable {
     case tavern, blacksmith, market, shop, flowerShop, post
     case townhall, school, church, fortress, tower
     case cathedral, castle
-    case skyscraper
+
+    // Tolerant decode: a building saved under a removed type (e.g. the old
+    // skyscraper) becomes a castle instead of crashing SwiftData.
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = BuildingType(rawValue: raw) ?? .castle
+    }
 
     /// Grid footprint (cells along x × cells along z). Anchor = first cell.
     /// Multi-cell buildings rotate in 90° steps; the second cell swings around
@@ -170,7 +176,6 @@ enum BuildingType: String, Codable, CaseIterable {
         case .fortress:   "Pevnost"
         case .cathedral:  "Katedrála"
         case .castle:     "Hrad"
-        case .skyscraper: "Mrakodrap"
         }
     }
 
@@ -195,7 +200,6 @@ enum BuildingType: String, Codable, CaseIterable {
         case .fortress:   "🏯"
         case .cathedral:  "🕌"
         case .castle:     "🏰"
-        case .skyscraper: "🏙"
         }
     }
 
@@ -221,7 +225,6 @@ enum BuildingType: String, Codable, CaseIterable {
         case .fortress:   MaterialCost(wood: 20, brick: 16, steel: 5)
         case .cathedral:  MaterialCost(wood: 24, brick: 20, steel: 8)
         case .castle:     MaterialCost(wood: 28, brick: 24, steel: 12)
-        case .skyscraper: MaterialCost(wood: 30, brick: 30, steel: 20)
         }
     }
 }

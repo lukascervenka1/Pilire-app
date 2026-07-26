@@ -19,8 +19,18 @@ final class TownScene: NSObject {
     // Callbacks (same API as the old 2D scene)
     var onBuildingTapped: ((BuildingNode) -> Void)?
     var onDecorationTapped: ((DecorationNode) -> Void)?
-    var onAnimalHeld: ((AnimalNode) -> Void)?      // long-press → tuck into the doghouse
+    var onAnimalTapped: ((AnimalNode) -> Void)?    // tap → pet actions
     var onTileTapped: ((Int, Int) -> Void)?
+
+    /// While placing small greenery, taps snap to the closest of the tile's five
+    /// anchors (centre + four corners) and report through `onAnchorTapped`.
+    var placingUsesAnchors = false {
+        didSet { if isPlacementMode { showPlacementHints(true) } }   // redraw with corner dots
+    }
+    var onAnchorTapped: ((Anchor) -> Void)?
+    /// Ground point of the last placement tap, so the handler can fall back to
+    /// the next-closest free anchor when the tapped one is taken.
+    private(set) var lastAnchorPoint: SCNVector3?
     var isPlacementMode = false {
         didSet { showPlacementHints(isPlacementMode || draggedNode != nil) }
     }
@@ -43,6 +53,7 @@ final class TownScene: NSObject {
 
     // Drag state
     private var draggedNode: (SCNNode & GridOccupant)?
+    private var draggedAnimal: AnimalNode?
     private var dragOffset  = SCNVector3Zero
     private var ghostNode: SCNNode?
     private var islandNode: SCNNode?
@@ -79,6 +90,87 @@ final class TownScene: NSObject {
     func worldToGrid(_ p: SCNVector3) -> (col: Int, row: Int) {
         let c = Float(cols - 1) / 2
         return (Int((p.x + c).rounded()), Int((p.z + c).rounded()))
+    }
+
+    // MARK: - Corner anchors (second lattice for small greenery)
+
+    /// Where a decoration sits: the centre of a tile, or a corner shared by the
+    /// four tiles around it. Corner indices run 0…cols in both axes.
+    enum Anchor {
+        case tile(col: Int, row: Int)
+        case corner(cx: Int, cy: Int)
+    }
+
+    /// World position of corner (cx, cy) — half a tile "before" tile (cx, cy).
+    func cornerToWorld(cx: Int, cy: Int) -> SCNVector3 {
+        let c = Float(cols - 1) / 2
+        return SCNVector3(Float(cx) - c - 0.5, 0, Float(cy) - c - 0.5)
+    }
+
+    /// Snap a ground point to whichever of the 5 anchors of the tile under it is
+    /// closest: the tile centre, or one of its four corners.
+    func nearestAnchor(to p: SCNVector3) -> Anchor {
+        anchorsByDistance(to: p).first ?? .tile(col: worldToGrid(p).col, row: worldToGrid(p).row)
+    }
+
+    /// Every anchor of the tile under `p` (its centre plus all four corners),
+    /// nearest first. Placement walks this list so tapping beside something
+    /// already occupied lands on the closest free spot instead of refusing.
+    func anchorsByDistance(to p: SCNVector3) -> [Anchor] {
+        let c = Float(cols - 1) / 2
+        let tile = worldToGrid(p)
+        let cx = Int((p.x + c + 0.5).rounded())
+        let cy = Int((p.z + c + 0.5).rounded())
+
+        var candidates: [Anchor] = [.tile(col: tile.col, row: tile.row)]
+        for dx in 0...1 {
+            for dy in 0...1 {
+                candidates.append(.corner(cx: tile.col + dx, cy: tile.row + dy))
+            }
+        }
+        // Keep the corner under the finger first among equals.
+        candidates.append(.corner(cx: cx, cy: cy))
+
+        func world(_ a: Anchor) -> SCNVector3 {
+            switch a {
+            case let .tile(col, row):   gridToWorld(col: col, row: row)
+            case let .corner(cx, cy):   cornerToWorld(cx: cx, cy: cy)
+            }
+        }
+        func d2(_ a: Anchor) -> Float {
+            let w = world(a)
+            let dx = w.x - p.x, dz = w.z - p.z
+            return dx * dx + dz * dz
+        }
+        // De-duplicate (the extra corner may repeat) and sort by distance.
+        var seen = Set<String>()
+        return candidates.filter { a in
+            let key: String
+            switch a {
+            case let .tile(col, row): key = "t\(col),\(row)"
+            case let .corner(cx, cy): key = "c\(cx),\(cy)"
+            }
+            return seen.insert(key).inserted
+        }
+        .sorted { d2($0) < d2($1) }
+    }
+
+    /// A corner is valid when it lies inside the island and holds nothing yet.
+    func cornerFree(cx: Int, cy: Int, excluding: DecorationNode? = nil) -> Bool {
+        guard cx >= 0, cy >= 0, cx <= cols, cy <= rows else { return false }
+        return !decorationNodes.contains { d in
+            d !== excluding && d.isCornerAnchor && d.gridX == cx && d.gridY == cy
+        }
+    }
+
+    /// Corner-anchored greenery around a tile — cleared when a building goes up
+    /// there so a tree can never block construction.
+    func cornerDecorations(around col: Int, row: Int) -> [DecorationNode] {
+        decorationNodes.filter { d in
+            guard d.isCornerAnchor else { return false }
+            return (d.gridX == col || d.gridX == col + 1)
+                && (d.gridY == row || d.gridY == row + 1)
+        }
     }
 
     // MARK: - Map size / expansion
@@ -187,6 +279,13 @@ final class TownScene: NSObject {
             ambLight?.intensity = 330
             ambLight?.color = UIColor(red: 0.55, green: 0.62, blue: 0.80, alpha: 1)
         }
+        refreshFirePits()
+    }
+
+    /// Re-read the clock — call when the map comes back on screen so fires and
+    /// bedtime follow real time without a restart.
+    func refreshTimeOfDay() {
+        applyDaylight()
     }
 
     // MARK: - Weather (seeded per day: mostly sun, sometimes rain or fog)
@@ -486,16 +585,32 @@ final class TownScene: NSObject {
                 }
             }
 
-            // Large irregular lighter/darker patches (meadow feel)
-            for _ in 0..<14 {
-                let r = 60 + rnd() * 160
+            // Large lighter/darker patches for a meadow feel. Drawn as radial
+            // gradients that fade to nothing — a hard-edged ellipse this big
+            // reads as a circle drawn on the lawn instead of a soft patch.
+            let space = CGColorSpaceCreateDeviceRGB()
+            for _ in 0..<16 {
+                let r = 70 + rnd() * 130
                 let light = rnd() > 0.5
-                c.setFillColor(UIColor(
-                    red: light ? 0.62 : 0.48,
-                    green: light ? 0.78 : 0.66,
-                    blue: light ? 0.46 : 0.38,
-                    alpha: 0.10 + rnd() * 0.08).cgColor)
-                c.fillEllipse(in: CGRect(x: rnd() * px - r/2, y: rnd() * px - r/2, width: r, height: r * (0.6 + rnd() * 0.5)))
+                let alpha = 0.10 + rnd() * 0.06
+                let core = UIColor(red: light ? 0.62 : 0.48,
+                                   green: light ? 0.78 : 0.66,
+                                   blue: light ? 0.46 : 0.38,
+                                   alpha: alpha).cgColor
+                let edge = core.copy(alpha: 0)!
+                guard let grad = CGGradient(colorsSpace: space,
+                                            colors: [core, edge] as CFArray,
+                                            locations: [0, 1]) else { continue }
+                let centre = CGPoint(x: rnd() * px, y: rnd() * px)
+                let squash = 0.7 + rnd() * 0.5
+                c.saveGState()
+                c.translateBy(x: centre.x, y: centre.y)
+                c.scaleBy(x: 1, y: squash)          // gentle ellipse, still soft
+                c.drawRadialGradient(grad,
+                                     startCenter: .zero, startRadius: 0,
+                                     endCenter: .zero, endRadius: r,
+                                     options: [])
+                c.restoreGState()
             }
 
             // Fine speckles — grass blades
@@ -626,13 +741,29 @@ final class TownScene: NSObject {
     // MARK: - Decorations
 
     @discardableResult
-    func addDecoration(type: DecorationItem, gridX: Int, gridY: Int, rotation: Int = 0) -> DecorationNode {
-        let node = DecorationNode(type: type, gridX: gridX, gridY: gridY, rotation: rotation)
-        node.position = gridToWorld(col: gridX, row: gridY)
+    func addDecoration(type: DecorationItem, gridX: Int, gridY: Int, rotation: Int = 0,
+                       isCornerAnchor: Bool = false, variant: Int = 0) -> DecorationNode {
+        let node = DecorationNode(type: type, gridX: gridX, gridY: gridY, rotation: rotation,
+                                  isCornerAnchor: isCornerAnchor, variant: variant)
+        node.position = isCornerAnchor
+            ? cornerToWorld(cx: gridX, cy: gridY)
+            : gridToWorld(col: gridX, row: gridY)
         scnScene.rootNode.addChildNode(node)
         decorationNodes.append(node)
         if type == .road { retileRoads(around: gridX, gridY) }
+        if type == .birdFeeder { node.startFeederVisits() }
+        if type == .firePit { node.setFireLit(isAfterDark) }
         return node
+    }
+
+    /// Dusk and night — when fires burn and pets turn in.
+    var isAfterDark: Bool { daylight == .night || daylight == .dusk }
+
+    /// Keep every fire pit in step with the time of day.
+    func refreshFirePits() {
+        for d in decorationNodes where d.type == .firePit {
+            d.setFireLit(isAfterDark)
+        }
     }
 
     func removeDecoration(_ node: DecorationNode) {
@@ -664,6 +795,7 @@ final class TownScene: NSObject {
             b.occupiedOffsets.contains { col == b.gridX + $0.dx && row == b.gridY + $0.dy }
         }) { return false }
         for d in decorationNodes {
+            guard !d.isCornerAnchor else { continue }   // cosmetic corner greenery
             let fp = d.type.footprint
             let inside = col >= d.gridX && col < d.gridX + fp.w
                       && row >= d.gridY && row < d.gridY + fp.l
@@ -696,8 +828,6 @@ final class TownScene: NSObject {
         let node = AnimalNode(
             kind: kind,
             calm: UIAccessibility.isReduceMotionEnabled,
-            visual: AnimalFactory.node(for: kind),   // placeholder shows immediately
-            clips: [:],
             isWalkable: { [weak self] c, r in self?.isAnimalWalkable(col: c, row: r) ?? false },
             isWater: { [weak self] c, r in self?.isWater(col: c, row: r) ?? false },
             worldFor: { [weak self] c, r in self?.gridToWorld(col: c, row: r) ?? SCNVector3Zero },
@@ -706,16 +836,68 @@ final class TownScene: NSObject {
                 return phase == .night || phase == .dusk
             }
         )
-        // Swap in the rigged glTF once it finishes parsing (no-op without asset).
-        AnimalModelLoader.loadRig(kind) { [weak node] visual, clips in
-            node?.adoptRig(visual: visual, clips: clips)
+        // A doghouse to sleep in, and a filled bowl to trot over to.
+        node.findBed = { [weak self] animal in self?.freeKennel(for: animal) }
+        node.findBowl = { [weak self] animal in
+            guard animal.kind.usesDoghouse else { return nil }   // it's dog food
+            return self?.filledBowl()
         }
+        node.onAteFromBowl = { [weak self] _ in
+            // Fired from a SceneKit action completion (render thread) — clear the
+            // node flag here, then hop to the main thread for the SwiftData part.
+            guard let self else { return }
+            for d in self.decorationNodes where d.type == .doghouse && d.bowlHasFood {
+                d.setBowlFilled(false)
+            }
+            DispatchQueue.main.async { [weak self] in self?.onBowlEmptied?() }
+        }
+
         let cell = randomWalkableLandCell()
         node.place(col: cell.col, row: cell.row)
         scnScene.rootNode.addChildNode(node)
         animalNodes.append(node)
-        node.startLiving()
+        // Load the downloaded glTF; adoptRig adds the model and starts it living.
+        AnimalModelLoader.loadRig(kind) { [weak node] visual, clips in
+            node?.adoptRig(visual: visual, clips: clips)
+        }
         return node
+    }
+
+    /// Fired when a pet finishes the food in a bowl, so the model layer can
+    /// clear the stored `hasFood` flag.
+    var onBowlEmptied: (() -> Void)?
+
+    /// A doghouse nobody else has claimed for the night, with the spot inside it.
+    private func freeKennel(for animal: AnimalNode)
+        -> (cell: (col: Int, row: Int), world: SCNVector3, yaw: Float)? {
+        guard animal.kind.usesDoghouse else { return nil }   // a horse won't fit
+        let houses = decorationNodes.filter { $0.type == .doghouse }
+        guard !houses.isEmpty else { return nil }
+        // One pet per house: claim by index so two dogs don't share a bed.
+        let sleepers = animalNodes.filter { $0 !== animal && $0.isSleeping }
+        for house in houses {
+            let taken = sleepers.contains { s in
+                abs(s.position.x - house.position.x) < 0.4 && abs(s.position.z - house.position.z) < 0.4
+            }
+            guard !taken, let bed = house.doghouseBed else { continue }
+            let world = SCNVector3(house.position.x + bed.offset.x,
+                                   bed.offset.y,
+                                   house.position.z + bed.offset.z)
+            return ((house.gridX, house.gridY), world, bed.yaw)
+        }
+        return nil
+    }
+
+    /// The first doghouse whose bowl currently has food in it. Reads the node's
+    /// own flag — this runs on the render thread, where SwiftData is off limits.
+    private func filledBowl() -> (cell: (col: Int, row: Int), world: SCNVector3)? {
+        for d in decorationNodes where d.type == .doghouse {
+            guard d.bowlHasFood,
+                  let bowl = d.childNode(withName: "bowl", recursively: true) else { continue }
+            let w = d.convertPosition(bowl.position, to: nil)
+            return ((d.gridX, d.gridY), SCNVector3(w.x, 0, w.z))
+        }
+        return nil
     }
 
     func removeAnimal(_ node: AnimalNode) {
@@ -733,7 +915,9 @@ final class TownScene: NSObject {
             return b.occupiedOffsets.contains { col == b.gridX + $0.dx && row == b.gridY + $0.dy }
         }
         let dOcc = decorationNodes.contains { d in
-            guard d !== excluding else { return false }
+            // Corner greenery lives on its own lattice and is purely cosmetic —
+            // it never occupies a build cell.
+            guard d !== excluding, !d.isCornerAnchor else { return false }
             let fp = d.type.footprint
             return col >= d.gridX && col < d.gridX + fp.w
                 && row >= d.gridY && row < d.gridY + fp.l
@@ -858,6 +1042,11 @@ final class TownScene: NSObject {
     func handleTap(at point: CGPoint) {
         if isPlacementMode {
             guard let g = groundPoint(at: point) else { return }
+            if placingUsesAnchors {
+                lastAnchorPoint = g          // lets the handler try nearby spots too
+                onAnchorTapped?(nearestAnchor(to: g))
+                return
+            }
             let cell = worldToGrid(g)
             onTileTapped?(cell.col, cell.row)
             return
@@ -869,8 +1058,7 @@ final class TownScene: NSObject {
         case let d as DecorationNode:
             onDecorationTapped?(d)
         default:
-            // Tap wakes a sleeping pet (handled entirely in the scene).
-            if let a = animalHit(at: point) { a.wake() }
+            if let a = animalHit(at: point) { onAnimalTapped?(a) }
         }
     }
 
@@ -955,10 +1143,13 @@ final class TownScene: NSObject {
     // MARK: - Drag & drop
 
     func dragBegan(at point: CGPoint) {
-        guard !isPlacementMode, draggedNode == nil else { return }
-        // Holding a pet tucks it into the doghouse (pets aren't draggable).
+        guard !isPlacementMode, draggedNode == nil, draggedAnimal == nil else { return }
+        // Pets are picked up and carried like anything else on the map.
         if occupantHit(at: point) == nil, let a = animalHit(at: point) {
-            onAnimalHeld?(a)
+            draggedAnimal = a
+            cameraPanEnabled = false
+            a.beginCarry()
+            a.runAction(.move(to: SCNVector3(a.position.x, 0.5, a.position.z), duration: 0.12))
             return
         }
         guard let b = occupantHit(at: point),
@@ -971,6 +1162,10 @@ final class TownScene: NSObject {
 
         b.runAction(.move(to: SCNVector3(b.position.x, 0.45, b.position.z), duration: 0.12))
         b.setSelected(true)
+
+        // Greenery can land on a corner, where a one-cell ghost would lie — the
+        // anchor dots are the guide instead.
+        if let dn = b as? DecorationNode, dn.type.canUseCornerAnchor { return }
 
         let bounds = offsetsBounds(of: b)
         let ghost = SCNNode(geometry: SCNPlane(width: CGFloat(bounds.w) + 0.02,
@@ -994,6 +1189,10 @@ final class TownScene: NSObject {
     }
 
     func dragMoved(at point: CGPoint) {
+        if let a = draggedAnimal, let g = groundPoint(at: point) {
+            a.position = SCNVector3(g.x, 0.5, g.z)
+            return
+        }
         guard let b = draggedNode, let g = groundPoint(at: point) else { return }
         b.position = SCNVector3(g.x + dragOffset.x, 0.45, g.z + dragOffset.z)
         let cell = worldToGrid(SCNVector3(b.position.x, 0, b.position.z))
@@ -1001,6 +1200,17 @@ final class TownScene: NSObject {
     }
 
     func dragEnded(at point: CGPoint) {
+        // Setting a carried pet down: land it on the nearest walkable cell.
+        if let a = draggedAnimal {
+            draggedAnimal = nil
+            cameraPanEnabled = true
+            let cell = worldToGrid(SCNVector3(a.position.x, 0, a.position.z))
+            let target = isAnimalWalkable(col: cell.col, row: cell.row)
+                ? cell
+                : randomWalkableLandCell()
+            a.endCarry(col: target.col, row: target.row)
+            return
+        }
         guard let b = draggedNode else { return }
         draggedNode = nil
         cameraPanEnabled = true
@@ -1008,6 +1218,33 @@ final class TownScene: NSObject {
         ghostNode = nil
         b.setSelected(false)
         showPlacementHints(isPlacementMode)
+
+        // Greenery lands on whichever is closer: a tile centre or a shared corner.
+        // It can move freely between the two lattices.
+        if let dn = b as? DecorationNode, dn.type.canUseCornerAnchor {
+            switch nearestAnchor(to: SCNVector3(dn.position.x, 0, dn.position.z)) {
+            case let .corner(cx, cy) where cornerFree(cx: cx, cy: cy, excluding: dn):
+                dn.isCornerAnchor = true
+                dn.gridX = cx; dn.gridY = cy
+                Haptics.drop()
+            case let .tile(col, row) where canPlace(offsets: [(0, 0)], at: col, row: row, excluding: dn):
+                dn.isCornerAnchor = false
+                dn.gridX = col; dn.gridY = row
+                Haptics.drop()
+            default:
+                Haptics.warning()   // occupied → snap back where it came from
+            }
+            dn.associatedDecoration?.isCornerAnchor = dn.isCornerAnchor
+            dn.associatedDecoration?.gridX = dn.gridX
+            dn.associatedDecoration?.gridY = dn.gridY
+            let dest = dn.isCornerAnchor
+                ? cornerToWorld(cx: dn.gridX, cy: dn.gridY)
+                : gridToWorld(col: dn.gridX, row: dn.gridY)
+            let settle = SCNAction.move(to: dest, duration: 0.18)
+            settle.timingMode = .easeOut
+            dn.runAction(settle)
+            return
+        }
 
         let cell = worldToGrid(SCNVector3(b.position.x, 0, b.position.z))
         let valid = canPlace(offsets: occupiedOffsets(of: b),
@@ -1062,6 +1299,24 @@ final class TownScene: NSObject {
                 let p = gridToWorld(col: col, row: row)
                 n.position = SCNVector3(p.x, 0.02, p.z)
                 group.addChildNode(n)
+            }
+        }
+
+        // Show the corner lattice whenever greenery is in play — both when
+        // placing a new one and when dragging an existing one around.
+        let draggingGreenery = (draggedNode as? DecorationNode)?.type.canUseCornerAnchor ?? false
+        if placingUsesAnchors || draggingGreenery {
+            let small = SCNCylinder(radius: 0.035, height: 0.01)
+            small.firstMaterial?.diffuse.contents = UIColor(red: 0.85, green: 0.98, blue: 0.80, alpha: 0.42)
+            small.firstMaterial?.lightingModel = .constant
+            for cx in 0...cols {
+                for cy in 0...rows {
+                    guard cornerFree(cx: cx, cy: cy, excluding: draggedNode as? DecorationNode) else { continue }
+                    let n = SCNNode(geometry: small)
+                    let p = cornerToWorld(cx: cx, cy: cy)
+                    n.position = SCNVector3(p.x, 0.02, p.z)
+                    group.addChildNode(n)
+                }
             }
         }
         group.opacity = 0
@@ -1225,19 +1480,24 @@ final class DecorationNode: SCNNode, GridOccupant {
     var gridX: Int
     var gridY: Int
     var associatedDecoration: PlacedDecoration?
+    /// True when (gridX, gridY) addresses a tile corner rather than a tile centre.
+    /// Greenery can be dragged between the two lattices, so this can change.
+    var isCornerAnchor: Bool
     private var rotationSteps: Int
 
     /// Roads auto-tile and the pond has a multi-cell footprint — those two
     /// keep their orientation; everything else rotates on double-tap.
     var canRotate: Bool { type != .road && type != .pond }
 
-    init(type: DecorationItem, gridX: Int, gridY: Int, rotation: Int = 0) {
+    init(type: DecorationItem, gridX: Int, gridY: Int, rotation: Int = 0,
+         isCornerAnchor: Bool = false, variant: Int = 0) {
         self.type = type
         self.gridX = gridX
         self.gridY = gridY
+        self.isCornerAnchor = isCornerAnchor
         self.rotationSteps = rotation
         super.init()
-        DecorationFactory.build(into: self, type: type)
+        DecorationFactory.build(into: self, type: type, variant: variant)
         if let r = Self.shadowRadius(for: type) {
             addChildNode(contactShadowNode(radius: r))
         }
@@ -1247,7 +1507,7 @@ final class DecorationNode: SCNNode, GridOccupant {
 
         // Vegetation variety: no two trees look identical. Deterministic per
         // cell, so the forest stays stable between app launches.
-        if type == .tree || type == .leafTree || type == .bush {
+        if type == .tree || type == .leafTree || type == .fruitTree || type == .bush {
             let seed = abs(gridX * 73 + gridY * 151)
             let s = 0.82 + Float(seed % 100) / 100 * 0.36        // 0.82…1.18
             scale = SCNVector3(s, s, s)
@@ -1266,13 +1526,159 @@ final class DecorationNode: SCNNode, GridOccupant {
         runAction(spin)
     }
 
+    // MARK: - Living decorations
+
+    /// Fire pit: cold and dark by day, burning after dusk.
+    func setFireLit(_ lit: Bool) {
+        guard type == .firePit,
+              let fire = childNode(withName: "fire", recursively: true) else { return }
+        guard fire.isHidden == lit else { return }      // already in the right state
+        fire.isHidden = !lit
+        fire.removeAllActions()
+        guard lit, !UIAccessibility.isReduceMotionEnabled else { return }
+        // Gentle flicker
+        let flicker = SCNAction.sequence([
+            .scale(to: 1.12, duration: 0.32),
+            .scale(to: 0.94, duration: 0.28),
+            .scale(to: 1.04, duration: 0.24),
+        ])
+        flicker.timingMode = .easeInEaseOut
+        fire.runAction(.repeatForever(flicker))
+    }
+
+    /// Mirrors `PlacedDecoration.hasFood` as a plain flag on the node, so the
+    /// SceneKit render thread never has to touch a SwiftData model.
+    private(set) var bowlHasFood = false
+
+    /// Hang (or clear) the name sign on the doghouse gable.
+    func setKennelName(_ name: String) {
+        guard type == .doghouse else { return }
+        childNode(withName: "namePlate", recursively: true)?.removeFromParentNode()
+        let text = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+
+        let px = CGSize(width: 320, height: 110)
+        let image = UIGraphicsImageRenderer(size: px).image { ctx in
+            // Wooden board with a darker rim
+            UIColor(red: 0.52, green: 0.36, blue: 0.22, alpha: 1).setFill()
+            ctx.fill(CGRect(origin: .zero, size: px))
+            UIColor(red: 0.85, green: 0.71, blue: 0.47, alpha: 1).setFill()
+            ctx.fill(CGRect(x: 8, y: 8, width: px.width - 16, height: px.height - 16))
+
+            let style = NSMutableParagraphStyle()
+            style.alignment = .center
+            style.lineBreakMode = .byTruncatingTail
+            // Long names simply get a smaller font so they still fit the board.
+            let size: CGFloat = text.count <= 6 ? 58 : (text.count <= 10 ? 44 : 32)
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: size, weight: .bold),
+                .foregroundColor: UIColor(red: 0.30, green: 0.19, blue: 0.11, alpha: 1),
+                .paragraphStyle: style,
+            ]
+            let bounds = CGRect(x: 12, y: (px.height - size * 1.25) / 2,
+                                width: px.width - 24, height: size * 1.25)
+            (text as NSString).draw(in: bounds, withAttributes: attrs)
+        }
+
+        let mat = SCNMaterial()
+        mat.diffuse.contents = image
+        mat.lightingModel = .lambert
+        mat.isDoubleSided = true
+
+        let plane = SCNPlane(width: 0.36, height: 0.125)
+        plane.materials = [mat]
+        let n = SCNNode(geometry: plane)
+        n.name = "namePlate"
+        n.position = SCNVector3(0, 0.38, 0.37)   // on the gable, above the opening
+        addChildNode(n)
+    }
+
+    /// Doghouse bowl: show or hide the kibble.
+    func setBowlFilled(_ filled: Bool) {
+        guard type == .doghouse else { return }
+        bowlHasFood = filled
+        childNode(withName: "bowlFood", recursively: true)?.isHidden = !filled
+    }
+
+    /// Where a pet should curl up inside this doghouse (world space offset from
+    /// the node), plus the facing that looks out of the opening.
+    var doghouseBed: (offset: SCNVector3, yaw: Float)? {
+        guard type == .doghouse else { return nil }
+        let yaw = eulerAngles.y
+        // Lying in the doorway with head and chest out, body inside — the way a
+        // dog actually rests in its kennel, and the only pose that stays visible
+        // from the game's isometric angle.
+        let depth: Float = 0.18
+        return (SCNVector3(depth * sin(yaw), 0.02, depth * cos(yaw)), yaw)
+    }
+
+    /// Krmítko: a small bird drops in every now and then, hops, and leaves.
+    func startFeederVisits() {
+        guard type == .birdFeeder, !UIAccessibility.isReduceMotionEnabled else { return }
+        let bird = SCNNode()
+        bird.name = "feederBird"
+        let body = SCNSphere(radius: 0.038)
+        body.segmentCount = 8
+        body.materials = [{ let m = SCNMaterial()
+            m.diffuse.contents = UIColor(red: 0.45, green: 0.50, blue: 0.58, alpha: 1)
+            m.lightingModel = .lambert; return m }()]
+        let b = SCNNode(geometry: body)
+        b.scale = SCNVector3(1, 0.9, 1.25)
+        bird.addChildNode(b)
+
+        let head = SCNSphere(radius: 0.024)
+        head.segmentCount = 8
+        head.materials = body.materials
+        let h = SCNNode(geometry: head)
+        h.position = SCNVector3(0, 0.028, 0.038)
+        bird.addChildNode(h)
+
+        let beak = SCNCone(topRadius: 0, bottomRadius: 0.009, height: 0.026)
+        beak.radialSegmentCount = 5
+        beak.materials = [{ let m = SCNMaterial()
+            m.diffuse.contents = UIColor(red: 0.90, green: 0.68, blue: 0.25, alpha: 1)
+            m.lightingModel = .lambert; return m }()]
+        let bk = SCNNode(geometry: beak)
+        bk.position = SCNVector3(0, 0.024, 0.062)
+        bk.eulerAngles.x = .pi / 2
+        bird.addChildNode(bk)
+
+        bird.position = SCNVector3(0.06, 0.47, 0.02)
+        bird.opacity = 0
+        addChildNode(bird)
+
+        // Land, hop about pecking, then leave — repeating with quiet gaps.
+        let hop = SCNAction.sequence([
+            .moveBy(x: -0.07, y: 0.05, z: 0.02, duration: 0.18),
+            .moveBy(x: 0, y: -0.05, z: 0, duration: 0.12),
+            .wait(duration: 0.5),
+            .moveBy(x: 0.09, y: 0.05, z: -0.03, duration: 0.18),
+            .moveBy(x: -0.02, y: -0.05, z: 0.01, duration: 0.12),
+            .wait(duration: 0.7),
+        ])
+        let visit = SCNAction.sequence([
+            .fadeIn(duration: 0.35),
+            .repeat(hop, count: 2),
+            .fadeOut(duration: 0.4),
+            .wait(duration: Double.random(in: 12...26)),
+        ])
+        bird.runAction(.sequence([
+            .wait(duration: Double.random(in: 2...10)),
+            .repeatForever(visit),
+        ]))
+    }
+
     private static func shadowRadius(for type: DecorationItem) -> CGFloat? {
         switch type {
-        case .tree:     0.20
-        case .leafTree: 0.25
-        case .bush:     0.14
-        case .bench:    0.17
-        case .fountain: 0.32
+        case .tree:       0.20
+        case .leafTree:   0.25
+        case .fruitTree:  0.22
+        case .bush:       0.14
+        case .bench:      0.17
+        case .fountain:   0.32
+        case .doghouse:   0.28
+        case .birdFeeder: 0.12
+        case .firePit:    0.30
         case .road, .pond: nil    // flat, sit in the ground already
         }
     }
@@ -1354,7 +1760,6 @@ enum BuildingFactory {
         case .fortress:   buildFortress(root, f)
         case .cathedral:  buildCathedral(root, f)
         case .castle:     buildCastle(root, f)
-        case .skyscraper: buildSkyscraper(root, f)
         }
         style = BuildingStyle()
         return root
@@ -2079,65 +2484,82 @@ enum BuildingFactory {
     }
 
     private static func buildCathedral(_ r: SCNNode, _ f: CGFloat) {
-        let body = texMat(.stone, 0.82, 0.79, 0.74, f)
-        let roof = mat(0.49, 0.42, 0.62, f)
-        // nave
-        box(r, w: 0.5, h: 0.66, l: 0.66, z: 0.06, material: body)
-        gableRoof(r, ridgeLen: 0.74, span: 0.56, y: 0.66, z: 0.06, material: roof, alongZ: true)
-        // twin towers
-        for sx in [-0.3, 0.3] {
-            box(r, w: 0.22, h: 1.1, l: 0.22, x: CGFloat(sx), z: 0.28, material: body)
-            cone(r, r: 0.17, h: 0.42, x: CGFloat(sx), y: 1.1, z: 0.28, material: roof)
+        let body  = texMat(.stone, 0.87, 0.82, 0.73, f)   // warm sandstone
+        let roof  = mat(0.32, 0.46, 0.56, f)              // slate teal
+        let spire = mat(0.28, 0.40, 0.50, f)
+        let gold  = mat(0.94, 0.80, 0.40, f)
+
+        // Long, tall nave with a steep roof
+        box(r, w: 0.56, h: 0.92, l: 0.82, z: -0.02, material: body)
+        gableRoof(r, ridgeLen: 0.86, span: 0.64, y: 0.92, z: -0.02, material: roof, alongZ: true)
+
+        // Buttresses down both sides of the nave
+        for zz in [-0.28, -0.06, 0.16] as [CGFloat] {
+            box(r, w: 0.05, h: 0.66, l: 0.07, x: -0.31, z: zz, material: body)
+            box(r, w: 0.05, h: 0.66, l: 0.07, x:  0.31, z: zz, material: body)
         }
-        // rose window
-        cylinder(r, r: 0.1, h: 0.02, y: 0.48, z: 0.39, material: glassMat())
+
+        // Twin front towers with tall spires + gold tips
+        for sx in [-0.32, 0.32] as [CGFloat] {
+            box(r, w: 0.24, h: 1.4, l: 0.24, x: sx, z: 0.34, material: body)
+            window(r, x: sx, y: 0.9, z: 0.47, w: 0.09, h: 0.2)
+            cone(r, r: 0.185, h: 0.6, x: sx, y: 1.4, z: 0.34, material: spire)
+            box(r, w: 0.035, h: 0.1, l: 0.035, x: sx, y: 2.0, z: 0.34, material: gold)
+        }
+
+        // Central crossing spire — the tallest point
+        box(r, w: 0.2, h: 1.15, l: 0.2, z: -0.12, material: body)
+        cone(r, r: 0.155, h: 0.72, y: 1.15, z: -0.12, material: spire)
+        box(r, w: 0.03, h: 0.12, l: 0.03, y: 1.87, z: -0.12, material: gold)
+
+        // Big rose window + arched door on the front facade
+        cylinder(r, r: 0.13, h: 0.02, y: 0.6, z: 0.5, material: glassMat())
             .eulerAngles.x = .pi / 2
-        door(r, z: 0.4, w: 0.16, h: 0.3)
+        door(r, z: 0.51, w: 0.2, h: 0.4)
     }
 
     private static func buildCastle(_ r: SCNNode, _ f: CGFloat) {
-        let stone = texMat(.stone, 0.58, 0.55, 0.51, f)
-        let roof  = mat(0.42, 0.34, 0.55, f)
-        // keep
-        box(r, w: 0.44, h: 0.8, l: 0.44, material: stone, chamfer: 0.01)
-        pyramidRoof(r, w: 0.5, h: 0.3, l: 0.5, y: 0.8, material: roof)
-        // corner towers with cone roofs
-        for (x, z) in [(-0.33, -0.33), (0.33, -0.33), (-0.33, 0.33), (0.33, 0.33)] {
-            cylinder(r, r: 0.11, h: 0.6, x: CGFloat(x), z: CGFloat(z), material: stone)
-            cone(r, r: 0.14, h: 0.26, x: CGFloat(x), y: 0.6, z: CGFloat(z), material: roof)
-        }
-        // walls between towers
-        box(r, w: 0.62, h: 0.32, l: 0.08, z: -0.33, material: stone, chamfer: 0.01)
-        box(r, w: 0.62, h: 0.32, l: 0.08, z: 0.33, material: stone, chamfer: 0.01)
-        box(r, w: 0.08, h: 0.32, l: 0.62, x: -0.33, material: stone, chamfer: 0.01)
-        box(r, w: 0.08, h: 0.32, l: 0.62, x: 0.33, material: stone, chamfer: 0.01)
-        // flag
-        box(r, w: 0.015, h: 0.22, l: 0.015, y: 1.1, material: mat(0.85, 0.82, 0.75))
-        box(r, w: 0.12, h: 0.07, l: 0.01, x: 0.07, y: 1.26, material: mat(0.88, 0.28, 0.25))
-        window(r, x: 0, y: 0.5, z: 0.23, w: 0.1, h: 0.14)
-        door(r, z: 0.37, w: 0.18, h: 0.26)
-    }
+        let stone = texMat(.stone, 0.62, 0.59, 0.54, f)
+        let roof  = mat(0.34, 0.40, 0.54, f)              // blue slate
+        let pole  = mat(0.86, 0.83, 0.76, f)
+        let flag  = mat(0.86, 0.30, 0.26, f)
 
-    private static func buildSkyscraper(_ r: SCNNode, _ f: CGFloat) {
-        let body  = mat(0.45, 0.57, 0.70, f)
-        let body2 = mat(0.52, 0.64, 0.77, f)
-        box(r, w: 0.6, h: 1.4, l: 0.6, material: body, chamfer: 0.03)
-        box(r, w: 0.44, h: 2.0, l: 0.44, x: 0.02, material: body2, chamfer: 0.03)
-        box(r, w: 0.3, h: 2.4, l: 0.3, x: 0.02, material: body, chamfer: 0.03)
-        // window bands
-        let glass = glassMat()
-        for level in 0..<6 {
-            let y = 0.18 + CGFloat(level) * 0.22
-            window(r, x: -0.18, y: y, z: 0.31, w: 0.12, h: 0.12, material: glass)
-            window(r, x: 0.06, y: y, z: 0.31, w: 0.12, h: 0.12, material: glass)
-            window(r, x: 0.31, y: y, z: -0.12, w: 0.12, h: 0.12, onXFace: true, material: glass)
+        /// Row of merlons (battlement teeth) along a wall top.
+        func merlons(alongX: Bool, fixed: CGFloat, top: CGFloat, span: CGFloat) {
+            let count = 5
+            for i in 0..<count {
+                let t = -span / 2 + span * CGFloat(i) / CGFloat(count - 1)
+                if alongX { box(r, w: 0.06, h: 0.09, l: 0.07, x: t, y: top, z: fixed, material: stone) }
+                else      { box(r, w: 0.07, h: 0.09, l: 0.06, x: fixed, y: top, z: t, material: stone) }
+            }
         }
-        for level in 0..<8 {
-            let y = 1.5 + CGFloat(level) * 0.11
-            window(r, x: 0.02, y: y, z: 0.23, w: 0.3, h: 0.05, material: glass)
+
+        // Big central keep with a pyramid roof
+        box(r, w: 0.5, h: 1.02, l: 0.5, material: stone, chamfer: 0.01)
+        pyramidRoof(r, w: 0.6, h: 0.38, l: 0.6, y: 1.02, material: roof)
+        box(r, w: 0.02, h: 0.24, l: 0.02, y: 1.4, material: pole)          // keep flag
+        box(r, w: 0.14, h: 0.09, l: 0.01, x: 0.08, y: 1.55, material: flag)
+
+        // Four tall corner towers with conical roofs
+        for (x, z) in [(-0.39, -0.39), (0.39, -0.39), (-0.39, 0.39), (0.39, 0.39)] as [(CGFloat, CGFloat)] {
+            cylinder(r, r: 0.12, h: 0.86, x: x, z: z, material: stone)
+            cone(r, r: 0.17, h: 0.34, x: x, y: 0.86, z: z, material: roof)
         }
-        // antenna
-        cylinder(r, r: 0.012, h: 0.3, x: 0.02, y: 2.4, material: mat(0.8, 0.8, 0.8))
+
+        // Curtain walls between the towers, topped with battlements
+        box(r, w: 0.66, h: 0.44, l: 0.08, z: -0.39, material: stone, chamfer: 0.01)
+        box(r, w: 0.66, h: 0.44, l: 0.08, z:  0.39, material: stone, chamfer: 0.01)
+        box(r, w: 0.08, h: 0.44, l: 0.66, x: -0.39, material: stone, chamfer: 0.01)
+        box(r, w: 0.08, h: 0.44, l: 0.66, x:  0.39, material: stone, chamfer: 0.01)
+        merlons(alongX: true,  fixed: -0.39, top: 0.44, span: 0.6)
+        merlons(alongX: true,  fixed:  0.39, top: 0.44, span: 0.6)
+        merlons(alongX: false, fixed: -0.39, top: 0.44, span: 0.6)
+        merlons(alongX: false, fixed:  0.39, top: 0.44, span: 0.6)
+
+        // Gatehouse + door on the front wall
+        box(r, w: 0.24, h: 0.56, l: 0.12, z: 0.42, material: stone, chamfer: 0.01)
+        window(r, x: 0, y: 0.62, z: 0.27, w: 0.1, h: 0.14)
+        door(r, z: 0.49, w: 0.18, h: 0.3)
     }
 }
 
@@ -2145,22 +2567,237 @@ enum BuildingFactory {
 
 enum DecorationFactory {
 
-    static func node(for type: DecorationItem) -> SCNNode {
+    static func node(for type: DecorationItem, variant: Int = 0) -> SCNNode {
         let root = SCNNode()
-        build(into: root, type: type)
+        build(into: root, type: type, variant: variant)
         return root
     }
 
-    static func build(into root: SCNNode, type: DecorationItem) {
+    static func build(into root: SCNNode, type: DecorationItem, variant: Int = 0) {
         switch type {
-        case .tree:     buildTree(root)
-        case .leafTree: buildLeafTree(root)
-        case .bush:     buildBush(root)
-        case .road:     buildRoad(root, n: false, e: false, s: false, w: false)
-        case .bench:    buildBench(root)
-        case .fountain: buildFountain(root)
-        case .pond:     buildPond(root)
+        case .tree:      buildTree(root)
+        case .leafTree:  buildLeafTree(root)
+        case .fruitTree: buildFruitTree(root, variant)
+        case .bush:      buildBush(root, variant)
+        case .road:      buildRoad(root, n: false, e: false, s: false, w: false)
+        case .bench:     buildBench(root)
+        case .fountain:  buildFountain(root)
+        case .pond:      buildPond(root)
+        case .doghouse:   buildDoghouse(root)
+        case .birdFeeder: buildBirdFeeder(root)
+        case .firePit:    buildFirePit(root)
         }
+    }
+
+    /// Psí bouda — open front so you can see the dog asleep inside, plus a bowl.
+    /// The opening faces +z (towards the camera in the default orientation).
+    private static func buildDoghouse(_ r: SCNNode) {
+        let wall = m(0.76, 0.53, 0.32)
+        let wallDark = m(0.63, 0.43, 0.25)
+        let roof = m(0.56, 0.29, 0.23)
+        // Light enough that the sleeping dog stands out against it.
+        let inside = m(0.40, 0.31, 0.24)
+
+        // Sized so a curled-up dog genuinely fits, with a wide low opening so
+        // you can actually see him in there.
+        func slab(_ w: CGFloat, _ h: CGFloat, _ l: CGFloat,
+                  _ x: CGFloat, _ y: CGFloat, _ z: CGFloat, _ mat: SCNMaterial,
+                  chamfer: CGFloat = 0.012) {
+            let g = SCNBox(width: w, height: h, length: l, chamferRadius: chamfer)
+            g.materials = [mat]
+            let n = SCNNode(geometry: g)
+            n.position = SCNVector3(x, y + h / 2, z)
+            r.addChildNode(n)
+        }
+
+        let wallH: CGFloat = 0.30
+        slab(0.72, 0.02, 0.66, 0, 0, 0, m(0.50, 0.36, 0.24))              // floor
+        // Kept light enough that the sleeping dog reads against it.
+        slab(0.60, 0.28, 0.58, 0, 0.02, -0.02, inside, chamfer: 0.008)    // interior
+        slab(0.06, wallH, 0.66, -0.33, 0, 0, wall)                        // left wall
+        slab(0.06, wallH, 0.66,  0.33, 0, 0, wall)                        // right wall
+        slab(0.72, wallH, 0.06,  0, 0, -0.30, wallDark)                   // back wall
+        // The front is left wide open: from the game's isometric angle a lintel
+        // hides the whole interior, so the gable above the opening is the only
+        // thing spanning the front.
+
+        // Gable ends filling the triangle under the roof, front and back.
+        for side in [0.33, -0.33] as [CGFloat] {
+            let tri = UIBezierPath()
+            tri.move(to: CGPoint(x: -0.36, y: 0))
+            tri.addLine(to: CGPoint(x: 0.36, y: 0))
+            tri.addLine(to: CGPoint(x: 0, y: 0.20))
+            tri.close()
+            let g = SCNShape(path: tri, extrusionDepth: 0.05)
+            g.materials = [side > 0 ? wall : wallDark]
+            let n = SCNNode(geometry: g)
+            n.position = SCNVector3(0, Float(wallH), Float(side))
+            r.addChildNode(n)
+        }
+
+        // Gable roof: two slabs meeting in a ridge that runs across the front,
+        // so the triangle sits above the door like a proper kennel.
+        let halfDepth: CGFloat = 0.39
+        let rise: CGFloat = 0.20
+        let slope = sqrt(halfDepth * halfDepth + rise * rise)
+        let pitch = Float(atan2(rise, halfDepth))
+        for side in [1.0, -1.0] as [CGFloat] {
+            let g = SCNBox(width: 0.80, height: 0.035, length: slope, chamferRadius: 0.01)
+            g.materials = [roof]
+            let n = SCNNode(geometry: g)
+            n.position = SCNVector3(0, Float(wallH + rise / 2), Float(side * halfDepth / 2))
+            n.eulerAngles.x = side > 0 ? pitch : -pitch
+            r.addChildNode(n)
+        }
+        // Ridge cap
+        slab(0.82, 0.04, 0.07, 0, wallH + rise - 0.02, 0, roof)
+
+        // Bowl in front of the house, off to one side.
+        let bowl = SCNCylinder(radius: 0.075, height: 0.035)
+        bowl.materials = [m(0.35, 0.52, 0.68)]
+        let b = SCNNode(geometry: bowl)
+        b.position = SCNVector3(0.36, 0.018, 0.42)
+        b.name = "bowl"
+        r.addChildNode(b)
+
+        let food = SCNSphere(radius: 0.052)
+        food.segmentCount = 10
+        food.materials = [m(0.42, 0.28, 0.16)]
+        let f = SCNNode(geometry: food)
+        f.position = SCNVector3(0.36, 0.038, 0.42)
+        f.scale = SCNVector3(1, 0.42, 1)
+        f.name = "bowlFood"
+        f.isHidden = true
+        r.addChildNode(f)
+    }
+
+    /// Krmítko — a little roofed tray on a post; birds come and go.
+    private static func buildBirdFeeder(_ r: SCNNode) {
+        let wood = m(0.60, 0.44, 0.28)
+        let roof = m(0.45, 0.55, 0.38)
+
+        let post = SCNCylinder(radius: 0.022, height: 0.42)
+        post.materials = [wood]
+        let p = SCNNode(geometry: post)
+        p.position = SCNVector3(0, 0.21, 0)
+        r.addChildNode(p)
+
+        let tray = SCNBox(width: 0.26, height: 0.022, length: 0.22, chamferRadius: 0.008)
+        tray.materials = [m(0.68, 0.52, 0.34)]
+        let t = SCNNode(geometry: tray)
+        t.position = SCNVector3(0, 0.43, 0)
+        t.name = "perch"
+        r.addChildNode(t)
+
+        // Seed scattered on the tray
+        for (sx, sz) in [(-0.05, 0.03), (0.04, -0.02), (0.01, 0.05)] as [(CGFloat, CGFloat)] {
+            let g = SCNSphere(radius: 0.012)
+            g.segmentCount = 6
+            g.materials = [m(0.78, 0.66, 0.36)]
+            let n = SCNNode(geometry: g)
+            n.position = SCNVector3(sx, 0.45, sz)
+            r.addChildNode(n)
+        }
+
+        // Two small posts holding a pitched roof over the tray
+        for sx in [-0.10, 0.10] as [CGFloat] {
+            let g = SCNBox(width: 0.016, height: 0.12, length: 0.016, chamferRadius: 0.004)
+            g.materials = [wood]
+            let n = SCNNode(geometry: g)
+            n.position = SCNVector3(sx, 0.50, 0)
+            r.addChildNode(n)
+        }
+        let rf = SCNBox(width: 0.30, height: 0.13, length: 0.13, chamferRadius: 0.012)
+        rf.materials = [roof]
+        let roofNode = SCNNode(geometry: rf)
+        roofNode.eulerAngles.x = .pi / 4
+        let holder = SCNNode()
+        holder.addChildNode(roofNode)
+        holder.position = SCNVector3(0, 0.60, 0)
+        r.addChildNode(holder)
+    }
+
+    /// Ohniště — a ring of stones with logs; the flames light up after dark.
+    private static func buildFirePit(_ r: SCNNode) {
+        // Stone ring
+        for i in 0..<9 {
+            let a = CGFloat(i) / 9 * .pi * 2
+            let g = SCNSphere(radius: 0.055 + CGFloat(i % 3) * 0.008)
+            g.segmentCount = 8
+            g.materials = [i % 2 == 0 ? m(0.60, 0.58, 0.55) : m(0.50, 0.48, 0.46)]
+            let n = SCNNode(geometry: g)
+            n.position = SCNVector3(Float(cos(a) * 0.24), 0.03, Float(sin(a) * 0.24))
+            n.scale = SCNVector3(1, 0.7, 1)
+            r.addChildNode(n)
+        }
+        // Ash bed
+        let ash = SCNCylinder(radius: 0.20, height: 0.02)
+        ash.materials = [m(0.32, 0.29, 0.27)]
+        let a = SCNNode(geometry: ash)
+        a.position = SCNVector3(0, 0.01, 0)
+        r.addChildNode(a)
+        // Crossed logs
+        for (i, yaw) in [0.5, 2.2, 4.0].enumerated() {
+            let g = SCNCylinder(radius: 0.028, height: 0.30)
+            g.materials = [i == 1 ? m(0.40, 0.29, 0.19) : m(0.47, 0.34, 0.22)]
+            let n = SCNNode(geometry: g)
+            n.position = SCNVector3(0, 0.06, 0)
+            n.eulerAngles = SCNVector3(Float.pi / 2 - 0.35, Float(yaw), 0)
+            r.addChildNode(n)
+        }
+        // Seats around the fire: two log stumps and a felled log to sit on, so
+        // the pit reads as a campfire people gather at.
+        for (sx, sz) in [(-0.36, 0.20), (0.34, -0.24)] as [(CGFloat, CGFloat)] {
+            let g = SCNCylinder(radius: 0.075, height: 0.13)
+            g.materials = [m(0.52, 0.38, 0.24)]
+            let n = SCNNode(geometry: g)
+            n.position = SCNVector3(Float(sx), 0.065, Float(sz))
+            r.addChildNode(n)
+            let top = SCNCylinder(radius: 0.077, height: 0.012)
+            top.materials = [m(0.68, 0.53, 0.35)]
+            let t = SCNNode(geometry: top)
+            t.position = SCNVector3(Float(sx), 0.132, Float(sz))
+            r.addChildNode(t)
+        }
+        let bench = SCNCylinder(radius: 0.06, height: 0.42)
+        bench.materials = [m(0.49, 0.36, 0.23)]
+        let bn = SCNNode(geometry: bench)
+        bn.position = SCNVector3(0.06, 0.055, 0.40)
+        bn.eulerAngles = SCNVector3(0, 0.25, Float.pi / 2)
+        r.addChildNode(bn)
+
+        // Flame group, hidden until night (toggled by setFireLit)
+        let fire = SCNNode()
+        fire.name = "fire"
+        fire.isHidden = true
+        r.addChildNode(fire)
+
+        for (i, spec) in [(0.075, 0.16, 0.0), (0.05, 0.11, 0.05), (0.045, 0.09, -0.05)].enumerated() {
+            let g = SCNCone(topRadius: 0, bottomRadius: spec.0, height: spec.1)
+            g.radialSegmentCount = 7
+            let mat = SCNMaterial()
+            let warm: UIColor = i == 0
+                ? UIColor(red: 1.0, green: 0.62, blue: 0.18, alpha: 1)
+                : UIColor(red: 1.0, green: 0.82, blue: 0.35, alpha: 1)
+            mat.diffuse.contents = warm
+            mat.emission.contents = warm
+            mat.lightingModel = .constant
+            g.materials = [mat]
+            let n = SCNNode(geometry: g)
+            n.position = SCNVector3(Float(spec.2), Float(0.09 + spec.1 / 2), Float(i == 1 ? 0.04 : -0.03))
+            fire.addChildNode(n)
+        }
+
+        // Warm light so the fire actually lifts the scene at night
+        let light = SCNLight()
+        light.type = .omni
+        light.color = UIColor(red: 1.0, green: 0.66, blue: 0.32, alpha: 1)
+        light.intensity = 420
+        light.attenuationEndDistance = 3.2
+        let lightNode = SCNNode()
+        lightNode.light = light
+        lightNode.position = SCNVector3(0, 0.28, 0)
+        fire.addChildNode(lightNode)
     }
 
     /// Rybníček přes 2 pole — organický tvar, rákosí na západní straně,
@@ -2369,8 +3006,142 @@ enum DecorationFactory {
         }
     }
 
-    /// Keř — two low overlapping mounds with a few berry dots.
-    private static func buildBush(_ r: SCNNode) {
+    /// Ovocný strom — three genuinely different trees, not one tree in three
+    /// colours. Fruit is anchored to the *surface* of the crown so it actually
+    /// reads from the game camera instead of hiding inside the leaves.
+    private static func buildFruitTree(_ r: SCNNode, _ variant: Int) {
+        let v = ((variant % 3) + 3) % 3
+
+        /// Fruit hanging *under* the canopy on a short stalk. Ringing fruit around
+        /// the crown's equator always reads as bumps on the silhouette, so these
+        /// dangle below the leaves where they're seen against the grass instead.
+        /// `rh`/`rv` are the canopy's horizontal/vertical radii (crowns are squashed).
+        let stemMat = m(0.34, 0.28, 0.18)
+        func fruit(centre c: (x: CGFloat, y: CGFloat, z: CGFloat), rh: CGFloat, rv: CGFloat,
+                   yaw: CGFloat, pitch: CGFloat, size: CGFloat, material: SCNMaterial) {
+            let dx = cos(pitch) * sin(yaw), dy = sin(pitch), dz = cos(pitch) * cos(yaw)
+            // Distance from the centre to the ellipsoid surface along this direction.
+            let surf = 1 / sqrt(pow(dx / rh, 2) + pow(dy / rv, 2) + pow(dz / rh, 2))
+            let hang = surf + size * 0.85          // clear of the leaves
+
+            let g = SCNSphere(radius: size)
+            g.segmentCount = 12
+            g.materials = [material]
+            let n = SCNNode(geometry: g)
+            n.position = SCNVector3(Float(c.x + dx * hang),
+                                    Float(c.y + dy * hang),
+                                    Float(c.z + dz * hang))
+            n.scale = SCNVector3(1, 0.92, 1)       // a touch squat, less bauble-like
+            r.addChildNode(n)
+
+            // Stalk from inside the foliage out to the fruit.
+            let inset = surf * 0.8
+            let mid = (inset + hang) / 2
+            let stem = SCNCylinder(radius: 0.006, height: hang - inset + 0.01)
+            stem.radialSegmentCount = 6
+            stem.materials = [stemMat]
+            let s = SCNNode(geometry: stem)
+            s.position = SCNVector3(Float(c.x + dx * mid), Float(c.y + dy * mid), Float(c.z + dz * mid))
+            s.eulerAngles = SCNVector3(Float.pi / 2 - Float(pitch), Float(yaw), 0)
+            r.addChildNode(s)
+        }
+
+        func trunk(_ radius: CGFloat, _ height: CGFloat, _ material: SCNMaterial) {
+            let g = SCNCylinder(radius: radius, height: height)
+            g.materials = [material]
+            let n = SCNNode(geometry: g)
+            n.position = SCNVector3(0, height / 2, 0)
+            r.addChildNode(n)
+        }
+
+        func leaves(_ x: CGFloat, _ y: CGFloat, _ z: CGFloat, _ s: CGFloat,
+                    _ material: SCNMaterial, squash: CGFloat = 1) {
+            let g = SCNSphere(radius: s)
+            g.segmentCount = 12
+            g.materials = [material]
+            let n = SCNNode(geometry: g)
+            n.position = SCNVector3(x, y, z)
+            n.scale = SCNVector3(1, Float(squash), 1)
+            r.addChildNode(n)
+        }
+
+        switch v {
+        case 1:
+            // ŠVESTKA — tall, narrow, upright crown on a slim dark trunk.
+            let lit  = m(0.33, 0.52, 0.31)
+            let dark = m(0.25, 0.42, 0.26)
+            let plum = m(0.42, 0.24, 0.55)
+            trunk(0.038, 0.30, m(0.36, 0.26, 0.18))
+            leaves(0, 0.50, 0, 0.17, lit, squash: 1.45)
+            leaves(-0.07, 0.40, 0.03, 0.11, dark, squash: 1.2)
+            leaves(0.07, 0.62, -0.02, 0.10, lit)
+            for (yaw, pitch) in [(0.5, -0.75), (2.4, -0.55), (3.5, -0.95), (5.3, -0.65)] {
+                fruit(centre: (0, 0.50, 0), rh: 0.175, rv: 0.245,
+                      yaw: CGFloat(yaw), pitch: CGFloat(pitch), size: 0.028, material: plum)
+            }
+            // a couple windfalls in the grass
+            for (fx, fz) in [(-0.17, 0.13), (0.15, -0.16)] as [(CGFloat, CGFloat)] {
+                let g = SCNSphere(radius: 0.026); g.segmentCount = 8; g.materials = [plum]
+                let n = SCNNode(geometry: g); n.position = SCNVector3(fx, 0.024, fz)
+                r.addChildNode(n)
+            }
+
+        case 2:
+            // POMERANČOVNÍK — low and wide, two flat tiers, heavy with fruit.
+            let lit  = m(0.42, 0.63, 0.30)
+            let dark = m(0.33, 0.52, 0.26)
+            let orange = m(0.97, 0.56, 0.14)
+            trunk(0.05, 0.15, m(0.50, 0.38, 0.24))
+            leaves(0, 0.30, 0, 0.25, lit, squash: 0.62)
+            leaves(0, 0.44, 0, 0.17, dark, squash: 0.6)
+            for (yaw, pitch) in [(0.4, -0.85), (1.9, -0.6), (3.2, -1.0), (4.6, -0.7), (5.6, -0.5)] {
+                fruit(centre: (0, 0.30, 0), rh: 0.25, rv: 0.155,
+                      yaw: CGFloat(yaw), pitch: CGFloat(pitch), size: 0.032, material: orange)
+            }
+
+        default:
+            // JABLOŇ — broad billowing crown, big red apples, chunky trunk.
+            let lit  = m(0.47, 0.68, 0.36)
+            let dark = m(0.37, 0.57, 0.31)
+            let apple = m(0.88, 0.20, 0.18)
+            trunk(0.055, 0.20, m(0.48, 0.34, 0.22))
+            leaves(0, 0.42, 0, 0.22, lit)
+            leaves(-0.15, 0.36, -0.04, 0.14, dark)
+            leaves(0.15, 0.38, 0.05, 0.13, dark)
+            for (yaw, pitch) in [(0.6, -0.7), (2.2, -0.5), (3.4, -0.9), (5.0, -0.6)] {
+                fruit(centre: (0, 0.42, 0), rh: 0.22, rv: 0.22,
+                      yaw: CGFloat(yaw), pitch: CGFloat(pitch), size: 0.034, material: apple)
+            }
+            fruit(centre: (-0.15, 0.36, -0.04), rh: 0.14, rv: 0.14,
+                  yaw: 3.9, pitch: -0.8, size: 0.03, material: apple)
+            // one apple fallen under the tree
+            let g = SCNSphere(radius: 0.032); g.segmentCount = 8; g.materials = [apple]
+            let n = SCNNode(geometry: g); n.position = SCNVector3(0.18, 0.03, 0.14)
+            r.addChildNode(n)
+        }
+    }
+
+    /// Keř — three looks: 0 bobulový, 1 kvetoucí, 2 vysoký travnatý trs.
+    private static func buildBush(_ r: SCNNode, _ variant: Int = 0) {
+        let v = ((variant % 3) + 3) % 3
+
+        if v == 2 {
+            // Tall grassy tuft: a few slim blades fanning out
+            let blade = m(0.46, 0.66, 0.36)
+            let bladeDark = m(0.38, 0.57, 0.31)
+            for (i, spec) in [(-0.07, 0.0, 0.03, -0.18), (0.0, 0.0, -0.02, 0.0),
+                              (0.07, 0.0, 0.04, 0.20), (0.02, 0.0, 0.09, 0.08)].enumerated() {
+                let g = SCNCone(topRadius: 0.004, bottomRadius: 0.035, height: 0.26)
+                g.radialSegmentCount = 6
+                g.materials = [i % 2 == 0 ? blade : bladeDark]
+                let n = SCNNode(geometry: g)
+                n.position = SCNVector3(spec.0, 0.13, spec.2)
+                n.eulerAngles.z = Float(spec.3)
+                r.addChildNode(n)
+            }
+            return
+        }
+
         let lit  = m(0.50, 0.70, 0.40)
         let dark = m(0.40, 0.60, 0.34)
         for (i, p) in [(-0.08, 0.11, 0.03, 0.14), (0.09, 0.09, -0.04, 0.11)].enumerated() {
@@ -2382,10 +3153,17 @@ enum DecorationFactory {
             n.scale = SCNVector3(1, 0.75, 1)         // squashed mound
             r.addChildNode(n)
         }
-        for (bx, by, bz) in [(-0.05, 0.19, 0.10), (0.12, 0.15, 0.02)] {
-            let berry = SCNSphere(radius: 0.018)
-            berry.materials = [m(0.88, 0.36, 0.34)]
-            let b = SCNNode(geometry: berry)
+
+        // Berries (v0) or little blossoms (v1)
+        let dotMat = v == 1 ? m(0.94, 0.72, 0.82) : m(0.88, 0.36, 0.34)
+        let dots: [(CGFloat, CGFloat, CGFloat)] = v == 1
+            ? [(-0.06, 0.20, 0.08), (0.11, 0.16, 0.03), (0.02, 0.21, -0.06), (-0.12, 0.16, -0.02)]
+            : [(-0.05, 0.19, 0.10), (0.12, 0.15, 0.02)]
+        for (bx, by, bz) in dots {
+            let g = SCNSphere(radius: v == 1 ? 0.022 : 0.018)
+            g.segmentCount = 8
+            g.materials = [dotMat]
+            let b = SCNNode(geometry: g)
             b.position = SCNVector3(bx, by, bz)
             r.addChildNode(b)
         }
@@ -2571,7 +3349,6 @@ extension BuildingType {
         case .tavern, .blacksmith, .market, .shop, .flowerShop, .post: (0.36, 0.48, 0.60)
         case .townhall, .school, .church, .fortress, .tower:           (0.37, 0.62, 0.52)
         case .cathedral, .castle:                                      (0.49, 0.42, 0.62)
-        case .skyscraper:                                              (0.43, 0.55, 0.68)
         }
     }
 }

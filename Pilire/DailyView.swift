@@ -15,10 +15,16 @@ struct DailyView: View {
     @State private var withTime = false
     @State private var newTime = Self.nextFullHour()
     @State private var timeEdit: TimeEdit?
+    @State private var pillarEdit: PillarEdit?
 
     struct TimeEdit: Identifiable {
         let id: UUID          // pillar id
         var date: Date
+    }
+
+    struct PillarEdit: Identifiable {
+        let id: UUID          // pillar id
+        var text: String
     }
 
     static func nextFullHour() -> Date {
@@ -30,13 +36,19 @@ struct DailyView: View {
     var settings: UserSettings
     var onDayCompleted: ((DayRecord) -> Void)?
 
+    /// Generous cap so you can jot down a lot of tasks without it becoming endless.
+    private let maxPillars = 20
+
     var body: some View {
         NavigationStack {
             if let day = today {
                 List {
                     progressSection(day)
                     pillarsSection(day)
-                    if day.pillars.count < 5 && !day.isCompleted {
+                    if !day.isCompleted, !carryOverItems.isEmpty {
+                        carryOverSection(day)
+                    }
+                    if day.pillars.count < maxPillars && !day.isCompleted {
                         addSection(day)
                     }
                     habitsSection(day)
@@ -73,6 +85,11 @@ struct DailyView: View {
                 .sheet(item: $timeEdit) { edit in
                     TimeEditSheet(date: edit.date) { picked in
                         setTime(picked, forID: edit.id, in: day)
+                    }
+                }
+                .sheet(item: $pillarEdit) { edit in
+                    PillarEditSheet(text: edit.text) { newText in
+                        updatePillarText(id: edit.id, to: newText, in: day)
                     }
                 }
                 .overlay(alignment: .top) { coinToast }
@@ -128,7 +145,20 @@ struct DailyView: View {
             }
             ForEach(day.pillars.sorted(by: { $0.order < $1.order })) { p in
                 PillarRow(pillar: p) { toggle(id: p.id, in: day) }
+                    .swipeActions(edge: .leading) {
+                        Button {
+                            pillarEdit = PillarEdit(id: p.id, text: p.text)
+                        } label: {
+                            Label("Upravit", systemImage: "pencil")
+                        }
+                        .tint(.orange)
+                    }
                     .contextMenu {
+                        Button {
+                            pillarEdit = PillarEdit(id: p.id, text: p.text)
+                        } label: {
+                            Label("Upravit text", systemImage: "pencil")
+                        }
                         if !p.isHabit && !habits.contains(where: { $0.text == p.text }) {
                             Button {
                                 makeHabit(from: p.text)
@@ -441,12 +471,103 @@ struct DailyView: View {
         NotificationManager.syncHabitReminders(habits: habits, completedTodayTexts: done)
     }
 
+    // MARK: - Carry over unfinished pillars
+
+    struct CarryItem: Identifiable {
+        let record: DayRecord
+        let pillar: Pillar
+        var id: UUID { pillar.id }
+    }
+
+    /// Unfinished, non-habit pillars from earlier days — offered to bring forward.
+    private var carryOverItems: [CarryItem] {
+        guard let today, !today.isCompleted else { return [] }
+        let todayStart = Calendar.current.startOfDay(for: today.date)
+        var items: [CarryItem] = []
+        for rec in records where Calendar.current.startOfDay(for: rec.date) < todayStart {
+            for p in rec.pillars where !p.isCompleted && !p.isHabit {
+                items.append(CarryItem(record: rec, pillar: p))
+            }
+        }
+        return items
+    }
+
+    @ViewBuilder
+    private func carryOverSection(_ day: DayRecord) -> some View {
+        let items = carryOverItems
+        Section {
+            ForEach(items) { item in
+                HStack(spacing: 12) {
+                    Image(systemName: "arrow.uturn.down.circle")
+                        .foregroundStyle(Theme.accentBottom)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.pillar.text)
+                            .font(.system(.subheadline, design: .rounded))
+                        Text(item.record.date, format: Date.FormatStyle(date: .abbreviated)
+                            .locale(Locale(identifier: "cs")))
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 4)
+                    Button("Přenést") { carryOver(item) }
+                        .font(.system(.subheadline, design: .rounded).bold())
+                        .foregroundStyle(Theme.accentBottom)
+                        .buttonStyle(.plain)
+                        .disabled(day.pillars.count >= maxPillars)
+                }
+                .contentShape(Rectangle())
+                .contextMenu {
+                    Button(role: .destructive) { deleteCarryOver(item) } label: {
+                        Label("Smazat", systemImage: "trash")
+                    }
+                }
+                .swipeActions(edge: .trailing) {
+                    Button(role: .destructive) { deleteCarryOver(item) } label: {
+                        Label("Smazat", systemImage: "trash")
+                    }
+                }
+            }
+        } header: {
+            HStack {
+                Text("Nedokončené z dřívějška")
+                Spacer()
+                if items.count > 1 {
+                    Button("Přenést vše") { for i in items { carryOver(i) } }
+                        .font(.caption.bold())
+                        .foregroundStyle(Theme.accentBottom)
+                        .textCase(nil)
+                }
+            }
+        } footer: {
+            Text("Přenes je do dneška a zkus to znovu, nebo je podrž a smaž.")
+        }
+    }
+
+    /// Move an unfinished pillar from its old day into today (fresh attempt).
+    private func carryOver(_ item: CarryItem) {
+        guard let day = today, !day.isCompleted, day.pillars.count < maxPillars else {
+            Haptics.warning(); return
+        }
+        item.record.pillars.removeAll { $0.id == item.pillar.id }
+        day.pillars.append(Pillar(text: item.pillar.text,
+                                  order: day.pillars.count,
+                                  isFromPool: item.pillar.isFromPool))
+        ctx.saveChanges()
+        Haptics.tap()
+    }
+
+    /// Delete an old unfinished pillar for good (drops it from its day).
+    private func deleteCarryOver(_ item: CarryItem) {
+        item.record.pillars.removeAll { $0.id == item.pillar.id }
+        ctx.saveChanges()
+        Haptics.drop()
+    }
+
     /// Add today's scheduled habits as pillars (idempotent).
     private func fillHabits(into day: DayRecord) {
         guard !day.isCompleted else { return }
         let existing = Set(day.pillars.map(\.text))
         for habit in habits where habit.isScheduled(on: day.date) {
-            guard !existing.contains(habit.text), day.pillars.count < 5 else { continue }
+            guard !existing.contains(habit.text), day.pillars.count < maxPillars else { continue }
             day.pillars.append(Pillar(text: habit.text, order: day.pillars.count, isHabit: true))
         }
     }
@@ -486,6 +607,20 @@ struct DailyView: View {
         guard let i = day.pillars.firstIndex(where: { $0.id == id }) else { return }
         day.pillars[i].scheduledAt = nil
         NotificationManager.cancelPillarReminder(id: id)
+    }
+
+    private func updatePillarText(id: UUID, to text: String, in day: DayRecord) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let i = day.pillars.firstIndex(where: { $0.id == id }) else { return }
+        day.pillars[i].text = trimmed
+        // Keep any scheduled reminder in sync with the new wording.
+        if let when = day.pillars[i].scheduledAt {
+            NotificationManager.cancelPillarReminder(id: id)
+            NotificationManager.schedulePillarReminder(id: id, text: trimmed, date: when)
+        }
+        ctx.saveChanges()
+        Haptics.tap()
     }
 
     private func addToCalendar(_ pillar: Pillar, in day: DayRecord) {
@@ -655,6 +790,60 @@ struct TimeEditSheet: View {
             }
         }
         .presentationDetents([.height(360)])
+    }
+}
+
+// MARK: - Pillar text edit sheet
+
+struct PillarEditSheet: View {
+    @State var text: String
+    var onSave: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var focused: Bool
+
+    private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                TextField("Text pilíře", text: $text, axis: .vertical)
+                    .focused($focused)
+                    .font(.system(.title3, design: .rounded))
+                    .lineLimit(1...4)
+                    .padding(14)
+                    .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.rowRadius))
+                    .submitLabel(.done)
+                    .onSubmit { save() }
+
+                Button(action: save) {
+                    Text("Uložit")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 13)
+                        .background(trimmed.isEmpty ? Color.secondary.opacity(0.3) : Color.orange,
+                                    in: RoundedRectangle(cornerRadius: Theme.cardRadius))
+                        .foregroundStyle(.white)
+                }
+                .buttonStyle(.plain)
+                .disabled(trimmed.isEmpty)
+
+                Spacer()
+            }
+            .padding(20)
+            .navigationTitle("Upravit pilíř")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { Button("Zavřít") { dismiss() } }
+            }
+        }
+        .presentationDetents([.height(280)])
+        .onAppear { focused = true }
+    }
+
+    private func save() {
+        guard !trimmed.isEmpty else { return }
+        onSave(trimmed)
+        dismiss()
     }
 }
 
