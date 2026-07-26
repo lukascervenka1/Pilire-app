@@ -169,7 +169,9 @@ struct ContentView: View {
         }
         .onAppear {
             ensureSettings()   // create the settings row here, not during body render
-            if !hasSeenOnboarding {
+            // Onboarding waits until a language is picked, so the two full-screen
+            // presentations can never collide on a fresh install.
+            if !hasSeenOnboarding, Language.shared.hasChosen {
                 // Wait for the splash to fade before presenting the tutorial
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.8) { showOnboarding = true }
             }

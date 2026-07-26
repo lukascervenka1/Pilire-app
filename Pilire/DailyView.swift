@@ -40,6 +40,8 @@ struct DailyView: View {
     private let maxPillars = 20
 
     @State private var newTomorrowText = ""
+    /// Observed so the list makes room when the tutorial banner appears.
+    @State private var tutorial = Tutorial.shared
 
     var body: some View {
         NavigationStack {
@@ -65,9 +67,12 @@ struct DailyView: View {
                 }
                 .listStyle(.insetGrouped)
                 .scrollContentBackground(.hidden)
-                // Scrollable bottom margin so the last row (Uzavřít den) always
-                // clears the floating tab bar and can be pulled into view.
-                .contentMargins(.bottom, 96, for: .scrollContent)
+                // Scrollable bottom margin so the last row (close the day) always
+                // clears the floating tab bar and can be pulled into view. While
+                // the tutorial banner is up it needs to clear that too, otherwise
+                // the banner sits on top of the button.
+                .contentMargins(.bottom, tutorial.current == nil ? 96 : 220,
+                                for: .scrollContent)
                 .background(Theme.creamGradient.ignoresSafeArea())
                 .navigationTitle(L(S.daily.title))
                 .toolbar { streakItem; habitsItem; settingsItem }

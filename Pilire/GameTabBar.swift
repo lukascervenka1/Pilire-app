@@ -16,7 +16,7 @@ struct GameTabBar: View {
     ]
     private let right: [(icon: String, label: String, tag: Int)] = [
         ("calendar",         L(S.tabs.calendar), 2),
-        ("book.closed.fill", "Kronika",  3),
+        ("book.closed.fill", L(S.tabs.chronicle),  3),
     ]
 
     var body: some View {

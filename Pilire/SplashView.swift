@@ -4,29 +4,37 @@ import SwiftUI
 
 struct RootView: View {
     @State private var showSplash = true
-    @State private var language = Language.shared
+    // Mirrors of the stored language, so a change in UserDefaults reliably
+    // redraws this view — the picker gate must never get stuck.
+    @AppStorage("appLanguageChosen") private var hasChosenLanguage = false
+    @AppStorage("appLanguage") private var languageCode = AppLanguage.systemSuggestion.rawValue
+
+    private var language: AppLanguage { AppLanguage(rawValue: languageCode) ?? .en }
 
     var body: some View {
-        ZStack {
-            ContentView()
-            if showSplash {
-                SplashView()
-                    .transition(.opacity)
-                    .zIndex(1)
-            }
-            // First launch: pick a language before anything else happens.
-            if !language.hasChosen {
-                LanguagePickerView { picked in
-                    withAnimation(.easeOut(duration: 0.3)) { language.choose(picked) }
+        Group {
+            if hasChosenLanguage {
+                ZStack {
+                    ContentView()
+                    if showSplash {
+                        SplashView()
+                            .transition(.opacity)
+                            .zIndex(1)
+                    }
                 }
-                .transition(.opacity)
-                .zIndex(2)
+            } else {
+                // Nothing else is in the hierarchy yet: the map's SceneKit view
+                // and its gesture recognizers can't swallow taps meant for the
+                // picker, and onboarding can't fight it for the screen.
+                LanguagePickerView { picked in
+                    Language.shared.choose(picked)
+                }
             }
         }
         // Dates, calendars and number formats follow the chosen language, and
         // the id forces a clean redraw when it changes.
-        .environment(\.locale, language.current.locale)
-        .id(language.current)
+        .environment(\.locale, language.locale)
+        .id(languageCode)
         // The whole app uses one warm, light look. Lock to light mode so the
         // branded cream/pastel design stays consistent regardless of the phone's
         // system appearance.

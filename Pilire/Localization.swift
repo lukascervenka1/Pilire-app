@@ -109,8 +109,12 @@ struct LanguagePickerView: View {
             VStack(spacing: 28) {
                 Spacer()
 
+                // The logo's geometry needs roughly 210pt of height or the
+                // capital and finial get clipped off the top.
                 PillarLogoView()
-                    .frame(width: 120, height: 130)
+                    .frame(width: 200, height: 210)
+                    .scaleEffect(0.8)
+                    .frame(height: 175)
 
                 VStack(spacing: 6) {
                     Text("Pilíře")
