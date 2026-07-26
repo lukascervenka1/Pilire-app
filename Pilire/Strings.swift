@@ -590,7 +590,6 @@ enum S {
         static let todayMark = T(cs: "· dnes", sk: "· dnes", en: "· today")
         static let buildBuilding = T(cs: "Postavit budovu", sk: "Postaviť budovu",
                                      en: "Put up a building")
-        static let momentumGain = T(cs: "Momentum +%d", sk: "Momentum +%d", en: "Momentum +%d")
         static let coinsLabel = T(cs: "Mince: %d", sk: "Mince: %d", en: "Coins: %d")
         static let momentumLabel = T(cs: "Momentum: %d", sk: "Momentum: %d", en: "Momentum: %d")
         static let integrations = T(cs: "Integrace", sk: "Integrácie", en: "Integrations")

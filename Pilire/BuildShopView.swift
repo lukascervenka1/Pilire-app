@@ -280,14 +280,6 @@ struct PayoutView: View {
                     Text(L(S.map.woodAlready))
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
-                if payout.momentumGained > 0 {
-                    HStack(spacing: 6) {
-                        Image(systemName: "leaf.fill").foregroundStyle(.green)
-                        Text(L(S.misc.momentumGain, Int(payout.momentumGained)))
-                            .font(.subheadline.weight(.semibold))
-                    }
-                    .padding(.top, 2)
-                }
             }
             .padding(.vertical, 6)
 

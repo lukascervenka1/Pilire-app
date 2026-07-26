@@ -8,7 +8,6 @@ struct CalendarView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var displayMonth = Calendar.current.startOfDay(for: .now)
     @State private var selectedRecord: DayRecord?
-    @State private var selectedBuilding: CalendarTappedBuilding?
     @State private var claimedReward: ChestReward?
     @State private var pulse: CGFloat = 1
 
@@ -152,10 +151,11 @@ struct CalendarView: View {
         let days = daysInMonth()
         // Index-based IDs: the leading/trailing padding cells are all `nil`, so
         // `id: \.self` would repeat nil and give SwiftUI duplicate IDs.
+        let byDay = recordsByDay
         return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
             ForEach(Array(days.enumerated()), id: \.offset) { _, date in
                 if let date {
-                    let rec = record(for: date)
+                    let rec = byDay[cal.startOfDay(for: date)]
                     DayCell(date: date, record: rec, isToday: cal.isDateInToday(date))
                         .onTapGesture { if let r = rec { selectedRecord = r } }
                 } else {
@@ -172,6 +172,7 @@ struct CalendarView: View {
     private var claimableWeeks: [(key: String, start: Date)] {
         guard let settings = settingsList.first else { return [] }
         let today = cal.startOfDay(for: .now)
+        let byDay = recordsByDay
         let weekStarts = Set(records.compactMap { rec -> Date? in
             cal.dateInterval(of: .weekOfYear, for: rec.date).map { cal.startOfDay(for: $0.start) }
         })
@@ -180,7 +181,7 @@ struct CalendarView: View {
             let key = Self.weekKeyFormatter.string(from: start)
             guard !settings.claimedWeekKeys.contains(key) else { return nil }
             let days = (0..<7).compactMap { cal.date(byAdding: .day, value: $0, to: start) }
-            let allDone = days.allSatisfy { (record(for: $0)?.completedCount ?? 0) > 0 }
+            let allDone = days.allSatisfy { (byDay[cal.startOfDay(for: $0)]?.completedCount ?? 0) > 0 }
             return allDone ? (key, start) : nil
         }
         .sorted { $0.start < $1.start }
@@ -191,10 +192,11 @@ struct CalendarView: View {
         guard let interval = cal.dateInterval(of: .weekOfYear, for: .now) else { return 0 }
         let start = cal.startOfDay(for: interval.start)
         let today = cal.startOfDay(for: .now)
+        let byDay = recordsByDay
         return (0..<7)
             .compactMap { cal.date(byAdding: .day, value: $0, to: start) }
             .filter { $0 <= today }
-            .filter { (record(for: $0)?.completedCount ?? 0) > 0 }
+            .filter { (byDay[cal.startOfDay(for: $0)]?.completedCount ?? 0) > 0 }
             .count
     }
 
@@ -331,8 +333,12 @@ struct CalendarView: View {
         return days
     }
 
-    private func record(for date: Date) -> DayRecord? {
-        records.first { cal.isDate($0.date, inSameDayAs: date) }
+    /// Records keyed by day. The grid and the weekly-chest check look up dozens
+    /// of dates per redraw; scanning the whole history for each one got slower
+    /// every month the player kept going.
+    private var recordsByDay: [Date: DayRecord] {
+        Dictionary(records.map { (cal.startOfDay(for: $0.date), $0) },
+                   uniquingKeysWith: { first, _ in first })
     }
 
     private func shiftMonth(_ delta: Int) {
@@ -557,12 +563,6 @@ struct CalendarDaySheet: View {
     }
 }
 
-struct CalendarTappedBuilding: Identifiable {
-    let id = UUID()
-    let record: DayRecord
-    let building: Building
-}
-
 // MARK: - Chest reward reveal
 
 struct ChestRewardOverlay: View {
@@ -644,15 +644,3 @@ struct ChestRewardOverlay: View {
     }
 }
 
-/// Isometric-style diamond used for calendar building miniatures.
-struct DiamondShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        p.move(to:    CGPoint(x: rect.midX, y: rect.minY))
-        p.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
-        p.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
-        p.addLine(to: CGPoint(x: rect.minX, y: rect.midY))
-        p.closeSubpath()
-        return p
-    }
-}

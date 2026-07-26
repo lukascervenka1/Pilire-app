@@ -5,18 +5,22 @@ struct NotificationManager {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
     }
 
+    @MainActor
     static func scheduleDailyReminders(morningHour: Int = 8, eveningHour: Int = 20) {
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: ["morning", "evening"])
 
-        center.getNotificationSettings { settings in
+        // Resolve the wording here on the main actor — the settings callback
+        // runs off it, and the language store must not be touched from there.
+        let morning = (title: L(S.notifications.morningTitle), body: L(S.notifications.morningBody))
+        let evening = (title: L(S.notifications.eveningTitle), body: L(S.notifications.eveningBody))
+
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
             guard settings.authorizationStatus == .authorized else { return }
             schedule(id: "morning", hour: morningHour, minute: 0,
-                     title: L(S.notifications.morningTitle),
-                     body: L(S.notifications.morningBody))
+                     title: morning.title, body: morning.body)
             schedule(id: "evening", hour: eveningHour, minute: 0,
-                     title: L(S.notifications.eveningTitle),
-                     body: L(S.notifications.eveningBody))
+                     title: evening.title, body: evening.body)
         }
     }
 
@@ -31,19 +35,20 @@ struct NotificationManager {
 
     /// Remove pending notifications whose identifier starts with a prefix.
     static func removePending(prefix: String) {
-        let center = UNUserNotificationCenter.current()
-        center.getPendingNotificationRequests { reqs in
+        UNUserNotificationCenter.current().getPendingNotificationRequests { reqs in
             let ids = reqs.map(\.identifier).filter { $0.hasPrefix(prefix) }
-            center.removePendingNotificationRequests(withIdentifiers: ids)
+            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ids)
         }
     }
 
     // MARK: - Habit reminders (gentle, Duolingo-like but never pushy)
 
-    private static let gentleBodies = S.notifications.gentleLines
+    @MainActor
+    private static var gentleBodies: [String] { S.notifications.gentleLines }
 
     /// Re-plans one-shot habit reminders for the next 7 days.
     /// Skips today's reminder when the habit is already done — no pointless pings.
+    @MainActor
     static func syncHabitReminders(habits: [Habit], completedTodayTexts: Set<String>) {
         struct Planned {
             let id: String
@@ -77,8 +82,8 @@ struct NotificationManager {
             }
         }
 
-        let center = UNUserNotificationCenter.current()
-        center.getPendingNotificationRequests { reqs in
+        UNUserNotificationCenter.current().getPendingNotificationRequests { reqs in
+            let center = UNUserNotificationCenter.current()
             let old = reqs.map(\.identifier).filter { $0.hasPrefix("habit-") }
             center.removePendingNotificationRequests(withIdentifiers: old)
             for p in planned {
@@ -94,6 +99,7 @@ struct NotificationManager {
 
     // MARK: - Per-pillar reminders (scheduled tasks)
 
+    @MainActor
     static func schedulePillarReminder(id: UUID, text: String, date: Date) {
         guard taskRemindersEnabled, date > .now else { return }
         let content = UNMutableNotificationContent()

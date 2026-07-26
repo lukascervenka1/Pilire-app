@@ -95,22 +95,6 @@ enum DecorationItem: String, Codable, CaseIterable {
         }
     }
 
-    var emoji: String {
-        switch self {
-        case .road:       "🪨"
-        case .tree:       "🌲"
-        case .leafTree:   "🌳"
-        case .fruitTree:  "🍎"
-        case .bush:       "🌿"
-        case .bench:      "🪑"
-        case .fountain:   "⛲"
-        case .pond:       "🦆"
-        case .doghouse:   "🐕"
-        case .birdFeeder: "🐦"
-        case .firePit:    "🔥"
-        }
-    }
-
     var symbolName: String {
         switch self {
         case .road:       "road.lanes"

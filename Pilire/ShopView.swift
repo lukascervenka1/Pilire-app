@@ -156,7 +156,6 @@ struct ShopView: View {
     var onReleaseAnimal: (OwnedAnimal) -> Void = { _ in }
     var onDeleteAnimal: (OwnedAnimal) -> Void = { _ in }
 
-    @State private var purchased: DecorationItem?
     @State private var animalToDelete: OwnedAnimal?
 
     var body: some View {

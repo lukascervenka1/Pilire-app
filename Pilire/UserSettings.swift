@@ -225,5 +225,4 @@ struct Payout: Identifiable {
     let id = UUID()
     var brick: Int = 0
     var steel: Int = 0
-    var momentumGained: Double = 0
 }

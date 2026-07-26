@@ -393,6 +393,11 @@ struct HabitEditSheet: View {
         let weekdayIdx = Habit.weekdayIndex(of: today)
         guard let gridEnd = cal.date(byAdding: .day, value: 6 - weekdayIdx, to: today) else { return [] }
 
+        // Index the history once — the grid asks about 35 days, and rescanning
+        // every record for each of them got slow once a few months piled up.
+        let byDay = Dictionary(records.map { (cal.startOfDay(for: $0.date), $0) },
+                               uniquingKeysWith: { first, _ in first })
+
         var out: [HistoryDay] = []
         for i in 0..<35 {
             guard let date = cal.date(byAdding: .day, value: i - 34, to: gridEnd) else { continue }
@@ -401,7 +406,7 @@ struct HabitEditSheet: View {
             let state: DayState
             if date > today || !isScheduledDay {
                 state = .notScheduled
-            } else if completed(on: date) {
+            } else if completed(on: date, in: byDay) {
                 state = .done
             } else if cal.isDate(date, inSameDayAs: today) {
                 state = .today
@@ -413,9 +418,8 @@ struct HabitEditSheet: View {
         return out
     }
 
-    private func completed(on date: Date) -> Bool {
-        guard let rec = records.first(where: { Calendar.current.isDate($0.date, inSameDayAs: date) })
-        else { return false }
+    private func completed(on date: Date, in byDay: [Date: DayRecord]) -> Bool {
+        guard let rec = byDay[Calendar.current.startOfDay(for: date)] else { return false }
         return rec.pillars.contains { $0.text == habit.text && $0.isCompleted }
     }
 }

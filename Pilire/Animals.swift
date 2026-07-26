@@ -174,9 +174,6 @@ enum AnimalKind: String, Codable, CaseIterable, Identifiable {
     /// will get their own shelters later.
     var usesDoghouse: Bool { self == .dog || self == .husky }
 
-    /// No pond-loving species in the current roster.
-    var lovesWater: Bool { false }
-
     var shadowRadius: CGFloat {
         switch self {
         case .cow, .horse:  0.30
