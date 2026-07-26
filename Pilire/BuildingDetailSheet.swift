@@ -30,7 +30,7 @@ struct BuildingDetailSheet: View {
                                 .font(.subheadline).foregroundStyle(.secondary)
                         }
                         if !node.isComplete {
-                            Label("Rozestavěná", systemImage: "hammer.fill")
+                            Label(L(S.map.underConstruction), systemImage: "hammer.fill")
                                 .font(.caption).foregroundStyle(.orange)
                                 .padding(.horizontal, 10).padding(.vertical, 4)
                                 .background(Color.orange.opacity(0.12))
@@ -44,7 +44,7 @@ struct BuildingDetailSheet: View {
                             Button {
                                 (onRotate ?? node.toggleRotation)()
                             } label: {
-                                Label("Otočit", systemImage: "arrow.left.arrow.right")
+                                Label(L(S.map.rotate), systemImage: "arrow.left.arrow.right")
                                     .font(.subheadline.bold())
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 12)
@@ -58,7 +58,7 @@ struct BuildingDetailSheet: View {
                             Button {
                                 confirmDemolish = true
                             } label: {
-                                Label("Zbourat", systemImage: "trash")
+                                Label(L(S.map.demolish), systemImage: "trash")
                                     .font(.subheadline.bold())
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 12)
@@ -69,17 +69,17 @@ struct BuildingDetailSheet: View {
                         }
                     }
                     .padding(.horizontal, 4)
-                    .confirmationDialog("Zbourat budovu?", isPresented: $confirmDemolish, titleVisibility: .visible) {
-                        Button("Zbourat", role: .destructive) {
+                    .confirmationDialog(L(S.map.demolishQuestion), isPresented: $confirmDemolish, titleVisibility: .visible) {
+                        Button(L(S.map.demolish), role: .destructive) {
                             onDemolish?()
                             dismiss()
                         }
-                        Button("Zrušit", role: .cancel) {}
+                        Button(L(S.common.cancel), role: .cancel) {}
                     } message: {
-                        Text("Vrátí se ti polovina materiálu (\(refundLabel)).")
+                        Text(L(S.map.refund, refundLabel))
                     }
 
-                    Text("Tip: podrž prst na budově a táhni pro přesun. Dvojklik ji otočí.")
+                    Text(L(S.map.moveTip))
                         .font(.caption).foregroundStyle(.tertiary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
@@ -88,7 +88,7 @@ struct BuildingDetailSheet: View {
 
                     if let record = dayRecord, !record.pillars.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
-                            Text("Pilíře dne").font(.headline)
+                            Text(L(S.calendar.dayPillars)).font(.headline)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             ForEach(record.pillars.sorted(by: { $0.order < $1.order })) { p in
                                 HStack(spacing: 10) {
@@ -110,7 +110,7 @@ struct BuildingDetailSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Zavřít") { dismiss() }
+                    Button(L(S.common.close)) { dismiss() }
                 }
             }
         }
@@ -184,9 +184,9 @@ struct BuildingDetailSheet: View {
     private var refundLabel: String {
         let c = node.type.cost
         var parts: [String] = []
-        if c.wood / 2 > 0  { parts.append("\(c.wood / 2) dřeva") }
-        if c.brick / 2 > 0 { parts.append("\(c.brick / 2) cihel") }
-        if c.steel / 2 > 0 { parts.append("\(c.steel / 2) oceli") }
-        return parts.isEmpty ? "nic" : parts.joined(separator: ", ")
+        if c.wood / 2 > 0  { parts.append("\(c.wood / 2) \(Material.wood.displayName.lowercased())") }
+        if c.brick / 2 > 0 { parts.append("\(c.brick / 2) \(Material.brick.displayName.lowercased())") }
+        if c.steel / 2 > 0 { parts.append("\(c.steel / 2) \(Material.steel.displayName.lowercased())") }
+        return parts.isEmpty ? L(S.map.nothing) : parts.joined(separator: ", ")
     }
 }

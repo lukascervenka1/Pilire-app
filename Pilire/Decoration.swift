@@ -78,19 +78,20 @@ enum DecorationItem: String, Codable, CaseIterable {
         }
     }
 
+    @MainActor
     var displayName: String {
         switch self {
-        case .road:       "Cesta"
-        case .tree:       "Jehličnan"
-        case .leafTree:   "Listnáč"
-        case .fruitTree:  "Ovocný strom"
-        case .bush:       "Keř"
-        case .bench:      "Lavička"
-        case .fountain:   "Fontána"
-        case .pond:       "Rybníček"
-        case .doghouse:   "Psí bouda"
-        case .birdFeeder: "Krmítko"
-        case .firePit:    "Ohniště"
+        case .road:       L(T(cs: "Cesta", sk: "Cesta", en: "Path"))
+        case .tree:       L(T(cs: "Jehličnan", sk: "Ihličnan", en: "Pine tree"))
+        case .leafTree:   L(T(cs: "Listnáč", sk: "Listnáč", en: "Leafy tree"))
+        case .fruitTree:  L(T(cs: "Ovocný strom", sk: "Ovocný strom", en: "Fruit tree"))
+        case .bush:       L(T(cs: "Keř", sk: "Ker", en: "Bush"))
+        case .bench:      L(T(cs: "Lavička", sk: "Lavička", en: "Bench"))
+        case .fountain:   L(T(cs: "Fontána", sk: "Fontána", en: "Fountain"))
+        case .pond:       L(T(cs: "Rybníček", sk: "Rybníček", en: "Pond"))
+        case .doghouse:   L(T(cs: "Psí bouda", sk: "Psia búda", en: "Doghouse"))
+        case .birdFeeder: L(T(cs: "Krmítko", sk: "Kŕmidlo", en: "Bird feeder"))
+        case .firePit:    L(T(cs: "Ohniště", sk: "Ohnisko", en: "Fire pit"))
         }
     }
 
@@ -161,19 +162,45 @@ enum DecorationItem: String, Codable, CaseIterable {
     /// Coins to fill the doghouse bowl once.
     static let dogFoodPrice = 15
 
+    @MainActor
     var description: String {
         switch self {
-        case .road:       "Táhni prstem po mapě, platíš za políčko"
-        case .tree:       "Štíhlý a stálezelený"
-        case .leafTree:   "Košatá koruna do parku"
-        case .fruitTree:  "Jabloň, švestka nebo pomerančovník, co ti padne"
-        case .bush:       "Drobná zeleň kamkoli, pokaždé trochu jiná"
-        case .bench:      "Místo k odpočinku"
-        case .fountain:   "Dominanta náměstí"
-        case .pond:       "Kachnička v ceně (2 pole)"
-        case .doghouse:   "V noci v ní spí pes. Můžeš mu nasypat do misky"
-        case .birdFeeder: "Slétají se na něj ptáci"
-        case .firePit:    "Po setmění se rozhoří"
+        case .road:
+            L(T(cs: "Táhni prstem po mapě, platíš za políčko",
+                sk: "Ťahaj prstom po mape, platíš za políčko",
+                en: "Drag across the map, you pay per tile"))
+        case .tree:
+            L(T(cs: "Štíhlý a stálezelený", sk: "Štíhly a stálezelený",
+                en: "Slim and evergreen"))
+        case .leafTree:
+            L(T(cs: "Košatá koruna do parku", sk: "Košatá koruna do parku",
+                en: "A broad crown for the park"))
+        case .fruitTree:
+            L(T(cs: "Jabloň, švestka nebo pomerančovník, co ti padne",
+                sk: "Jabloň, slivka alebo pomarančovník, čo ti padne",
+                en: "Apple, plum or orange tree, whichever you get"))
+        case .bush:
+            L(T(cs: "Drobná zeleň kamkoli, pokaždé trochu jiná",
+                sk: "Drobná zeleň kamkoľvek, zakaždým trochu iná",
+                en: "Small greenery anywhere, never quite the same"))
+        case .bench:
+            L(T(cs: "Místo k odpočinku", sk: "Miesto na oddych", en: "A place to rest"))
+        case .fountain:
+            L(T(cs: "Dominanta náměstí", sk: "Dominanta námestia",
+                en: "The centrepiece of a square"))
+        case .pond:
+            L(T(cs: "Kachnička v ceně (2 pole)", sk: "Kačička v cene (2 polia)",
+                en: "Duck included (2 tiles)"))
+        case .doghouse:
+            L(T(cs: "V noci v ní spí pes. Můžeš mu nasypat do misky",
+                sk: "V noci v nej spí pes. Môžeš mu nasypať do misky",
+                en: "Your dog sleeps here at night. You can fill the bowl"))
+        case .birdFeeder:
+            L(T(cs: "Slétají se na něj ptáci", sk: "Zlietavajú sa naň vtáky",
+                en: "Birds come and visit"))
+        case .firePit:
+            L(T(cs: "Po setmění se rozhoří", sk: "Po zotmení sa rozhorí",
+                en: "Lights up after dark"))
         }
     }
 }

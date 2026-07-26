@@ -164,7 +164,7 @@ struct ShopView: View {
             List {
                 Section {
                     HStack {
-                        Text("Tvůj zůstatek")
+                        Text(L(S.shop.balance))
                         Spacer()
                         HStack(spacing: 5) {
                             Image(systemName: "seal.fill").foregroundStyle(.yellow)
@@ -174,7 +174,7 @@ struct ShopView: View {
                     }
                 }
 
-                Section("Směnárna") {
+                Section(L(S.shop.exchange)) {
                     ForEach(Material.allCases) { m in
                         HStack(spacing: 14) {
                             Image(systemName: m.symbolName)
@@ -185,7 +185,7 @@ struct ShopView: View {
                                             in: RoundedRectangle(cornerRadius: Theme.rowRadius))
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("1× \(m.displayName)").fontWeight(.semibold)
-                                Text("Máš: \(settings.count(m))").font(.caption).foregroundStyle(.secondary)
+                                Text(L(S.shop.youHave, settings.count(m))).font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
                             Button {
@@ -212,7 +212,7 @@ struct ShopView: View {
                     }
                 }
 
-                Section("Dekorace") {
+                Section(L(S.shop.decorations)) {
                     ForEach(DecorationItem.allCases, id: \.self) { item in
                         ShopRow(item: item, canAfford: settings.coinBalance >= item.cost) {
                             buy(item)
@@ -227,9 +227,9 @@ struct ShopView: View {
                         }
                     }
                 } header: {
-                    Text("Zoo")
+                    Text(L(S.shop.zoo))
                 } footer: {
-                    Text("Zvíře se po koupi nastěhuje na mapu a začne se procházet. Chodí po loukách i cestách, obchází domy a rádo si žije po svém. Ťukni na něj a dá se probudit nebo poslat do boudy, podržením ho přeneseš jinam.")
+                    Text(L(S.shop.zooFooter))
                 }
 
                 if !tuckedAnimals.isEmpty {
@@ -243,38 +243,38 @@ struct ShopView: View {
                             )
                         }
                     } header: {
-                        Text("Na odpočinku")
+                        Text(L(S.shop.resting))
                     } footer: {
-                        Text("Zvířata, která teď odpočívají mimo mapu. Dej jim jméno, pusť je zpět, nebo se s nimi rozluč.")
+                        Text(L(S.shop.restingFooter))
                     }
                 }
 
                 Section {
-                    Text("Po nákupu ťukni na dlaždici kde chceš dekoraci umístit.")
+                    Text(L(S.shop.placeHint))
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
             .listStyle(.insetGrouped)
-            .navigationTitle("Obchod")
+            .navigationTitle(L(S.shop.title))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Zavřít") { dismiss() }
+                    Button(L(S.common.close)) { dismiss() }
                 }
             }
             .confirmationDialog(
-                "Rozloučit se s \(animalToDelete?.displayName ?? "")?",
+                L(S.shop.sayGoodbyeTo, animalToDelete?.displayName ?? ""),
                 isPresented: Binding(get: { animalToDelete != nil },
                                      set: { if !$0 { animalToDelete = nil } }),
                 titleVisibility: .visible
             ) {
-                Button("Rozloučit se", role: .destructive) {
+                Button(L(S.shop.sayGoodbye), role: .destructive) {
                     if let a = animalToDelete { onDeleteAnimal(a) }
                     animalToDelete = nil
                 }
-                Button("Zrušit", role: .cancel) {}
+                Button(L(S.common.cancel), role: .cancel) {}
             } message: {
-                Text("Zvíře nadobro opustí tvé městečko. Tohle nejde vzít zpět.")
+                Text(L(S.shop.goodbyeNote))
             }
         }
     }
@@ -328,7 +328,7 @@ struct DoghouseRow: View {
             Spacer(minLength: 4)
 
             Button(action: onRelease) {
-                Text("Pustit ven").fontWeight(.semibold)
+                Text(L(S.shop.letOut)).fontWeight(.semibold)
                     .padding(.horizontal, 12).padding(.vertical, 6)
                     .background(Color.green.opacity(0.15))
                     .foregroundStyle(.green)
@@ -343,7 +343,7 @@ struct DoghouseRow: View {
                     .frame(width: 32, height: 32)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Rozloučit se se zvířetem")
+            .accessibilityLabel(L(S.shop.goodbyeLabel))
         }
         .onChange(of: naming) { _, focused in
             if !focused { onNameChange() }   // save when the field loses focus

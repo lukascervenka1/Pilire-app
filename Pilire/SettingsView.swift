@@ -14,12 +14,28 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var confirmReset = false
     @State private var resetDone = false
+    @State private var language = Language.shared
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Připomínky") {
-                    Toggle("Zapnout připomínky", isOn: $notificationsEnabled)
+                Section {
+                    Picker(selection: Binding(
+                        get: { language.current },
+                        set: { language.choose($0) })
+                    ) {
+                        ForEach(AppLanguage.allCases) { lang in
+                            Text("\(lang.flag)  \(lang.nativeName)").tag(lang)
+                        }
+                    } label: {
+                        Label(L(S.settings.language), systemImage: "globe")
+                    }
+                } header: {
+                    Text(L(S.settings.languageSection))
+                }
+
+                Section(L(S.settings.remindersSection)) {
+                    Toggle(L(S.settings.remindersToggle), isOn: $notificationsEnabled)
                         .onChange(of: notificationsEnabled) { _, on in
                             if on {
                                 NotificationManager.requestPermission()
@@ -34,7 +50,7 @@ struct SettingsView: View {
 
                     if notificationsEnabled {
                         HStack {
-                            Text("Ranní výzva")
+                            Text(L(S.settings.morningNudge))
                             Spacer()
                             Stepper("\(morningHour):00", value: $morningHour, in: 5...11)
                                 .onChange(of: morningHour) { _, v in
@@ -43,7 +59,7 @@ struct SettingsView: View {
                         }
 
                         HStack {
-                            Text("Večerní připomínka")
+                            Text(L(S.settings.eveningNudge))
                             Spacer()
                             Stepper("\(eveningHour):00", value: $eveningHour, in: 16...23)
                                 .onChange(of: eveningHour) { _, v in
@@ -55,7 +71,7 @@ struct SettingsView: View {
 
                 Section {
                     Toggle(isOn: $notifHabits) {
-                        Label("Návyky", systemImage: "repeat")
+                        Label(L(S.settings.habits), systemImage: "repeat")
                     }
                     .tint(.indigo)
                     .onChange(of: notifHabits) { _, on in
@@ -64,57 +80,56 @@ struct SettingsView: View {
                     }
 
                     Toggle(isOn: $notifTasks) {
-                        Label("Časované úkoly", systemImage: "clock")
+                        Label(L(S.settings.timedTasks), systemImage: "clock")
                     }
                     .tint(.orange)
                     .onChange(of: notifTasks) { _, on in
                         if !on { NotificationManager.removePending(prefix: "pillar-") }
                     }
                 } header: {
-                    Text("Jemné připomínky")
+                    Text(L(S.settings.gentleSection))
                 } footer: {
-                    Text("Jedna tichá zpráva v čas návyku nebo úkolu, žádné výčitky ani opakování. Splněný návyk už ten den nepípne.")
+                    Text(L(S.settings.gentleFooter))
                 }
 
                 Section {
                     Toggle(isOn: $mapFollowsFinger) {
-                        Label("Mapa sleduje prst", systemImage: "hand.draw")
+                        Label(L(S.settings.mapFollowsFinger), systemImage: "hand.draw")
                     }
                     .tint(.orange)
                 } header: {
-                    Text("Ovládání mapy")
+                    Text(L(S.settings.mapSection))
                 } footer: {
-                    Text("Zapnuto: mapa se posouvá s prstem, jako fotka. Vypnuto: kamera letí směrem tažení.")
+                    Text(L(S.settings.mapFooter))
                 }
 
-                Section("Aplikace") {
-                    LabeledContent("Verze", value: "1.0")
+                Section(L(S.settings.appSection)) {
+                    LabeledContent(L(S.settings.version), value: "1.0")
                 }
 
                 Section {
                     Button(role: .destructive) {
                         confirmReset = true
                     } label: {
-                        Label("Smazat všechna data", systemImage: "trash")
+                        Label(L(S.settings.deleteAll), systemImage: "trash")
                     }
                 } footer: {
-                    Text(resetDone
-                         ? "Hotovo. Ukonči aplikaci (odsuň ji nahoru) a spusť znovu, načte se jako úplně nová."
-                         : "Smaže město, pilíře, návyky, mince i materiál a vrátí appku do stavu po instalaci. Nevratné.")
+                    Text(resetDone ? L(S.settings.deleteDoneFooter) : L(S.settings.deleteFooter))
                 }
             }
-            .navigationTitle("Nastavení")
+            .navigationTitle(L(S.settings.title))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Hotovo") { dismiss() }
+                    Button(L(S.common.done)) { dismiss() }
                 }
             }
-            .confirmationDialog("Smazat všechna data?", isPresented: $confirmReset, titleVisibility: .visible) {
-                Button("Smazat vše", role: .destructive) { resetEverything() }
-                Button("Zrušit", role: .cancel) {}
+            .confirmationDialog(L(S.settings.deleteAllQuestion),
+                                isPresented: $confirmReset, titleVisibility: .visible) {
+                Button(L(S.settings.deleteEverything), role: .destructive) { resetEverything() }
+                Button(L(S.common.cancel), role: .cancel) {}
             } message: {
-                Text("Přijdeš o celé město, historii i návyky. Tohle nejde vzít zpět.")
+                Text(L(S.settings.deleteMessage))
             }
         }
         .onAppear {

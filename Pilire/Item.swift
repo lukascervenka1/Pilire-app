@@ -88,11 +88,12 @@ enum Material: String, Codable, CaseIterable, Identifiable {
     case wood, brick, steel
     var id: String { rawValue }
 
+    @MainActor
     var displayName: String {
         switch self {
-        case .wood:  "Dřevo"
-        case .brick: "Cihly"
-        case .steel: "Ocel"
+        case .wood:  L(T(cs: "Dřevo", sk: "Drevo", en: "Wood"))
+        case .brick: L(T(cs: "Cihly", sk: "Tehly", en: "Bricks"))
+        case .steel: L(T(cs: "Ocel", sk: "Oceľ", en: "Steel"))
         }
     }
 
@@ -155,27 +156,28 @@ enum BuildingType: String, Codable, CaseIterable {
         }
     }
 
+    @MainActor
     var displayName: String {
         switch self {
-        case .cottage:    "Chalupa"
-        case .house:      "Rodinný domek"
-        case .barn:       "Stodola"
-        case .well:       "Studna"
-        case .farm:       "Farma"
-        case .stables:    "Stáje"
-        case .shop:       "Obchod"
-        case .flowerShop: "Květinářství"
-        case .post:       "Pošta"
-        case .school:     "Škola"
-        case .tower:      "Věž"
-        case .tavern:     "Hostinec"
-        case .blacksmith: "Kovárna"
-        case .market:     "Tržiště"
-        case .townhall:   "Radnice"
-        case .church:     "Kostel"
-        case .fortress:   "Pevnost"
-        case .cathedral:  "Katedrála"
-        case .castle:     "Hrad"
+        case .cottage:    L(T(cs: "Chalupa", sk: "Chalupa", en: "Cottage"))
+        case .house:      L(T(cs: "Rodinný domek", sk: "Rodinný domček", en: "Family house"))
+        case .barn:       L(T(cs: "Stodola", sk: "Stodola", en: "Barn"))
+        case .well:       L(T(cs: "Studna", sk: "Studňa", en: "Well"))
+        case .farm:       L(T(cs: "Farma", sk: "Farma", en: "Farm"))
+        case .stables:    L(T(cs: "Stáje", sk: "Stajne", en: "Stables"))
+        case .shop:       L(T(cs: "Obchod", sk: "Obchod", en: "Shop"))
+        case .flowerShop: L(T(cs: "Květinářství", sk: "Kvetinárstvo", en: "Flower shop"))
+        case .post:       L(T(cs: "Pošta", sk: "Pošta", en: "Post office"))
+        case .school:     L(T(cs: "Škola", sk: "Škola", en: "School"))
+        case .tower:      L(T(cs: "Věž", sk: "Veža", en: "Tower"))
+        case .tavern:     L(T(cs: "Hostinec", sk: "Hostinec", en: "Tavern"))
+        case .blacksmith: L(T(cs: "Kovárna", sk: "Kováčstvo", en: "Blacksmith"))
+        case .market:     L(T(cs: "Tržiště", sk: "Trhovisko", en: "Market"))
+        case .townhall:   L(T(cs: "Radnice", sk: "Radnica", en: "Town hall"))
+        case .church:     L(T(cs: "Kostel", sk: "Kostol", en: "Church"))
+        case .fortress:   L(T(cs: "Pevnost", sk: "Pevnosť", en: "Fortress"))
+        case .cathedral:  L(T(cs: "Katedrála", sk: "Katedrála", en: "Cathedral"))
+        case .castle:     L(T(cs: "Hrad", sk: "Hrad", en: "Castle"))
         }
     }
 

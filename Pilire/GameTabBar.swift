@@ -11,11 +11,11 @@ struct GameTabBar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let left:  [(icon: String, label: String, tag: Int)] = [
-        ("map.fill",  "Město",  0),
-        ("checklist", "Pilíře", 1),
+        ("map.fill",  L(S.tabs.town),  0),
+        ("checklist", L(S.tabs.pillars), 1),
     ]
     private let right: [(icon: String, label: String, tag: Int)] = [
-        ("calendar",         "Kalendář", 2),
+        ("calendar",         L(S.tabs.calendar), 2),
         ("book.closed.fill", "Kronika",  3),
     ]
 
@@ -105,7 +105,7 @@ struct GameTabBar: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Postavit budovu")
+        .accessibilityLabel(L(S.misc.buildBuilding))
         .onChange(of: pulseBuild, initial: true) { _, on in
             guard !reduceMotion else { pulsing = false; return }
             if on {

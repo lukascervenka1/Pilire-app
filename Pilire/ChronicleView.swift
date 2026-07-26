@@ -15,11 +15,11 @@ struct ChronicleView: View {
             Group {
                 if grouped.isEmpty {
                     ContentUnavailableView(
-                        search.isEmpty ? "Zatím prázdno" : "Nic nenalezeno",
+                        search.isEmpty ? L(S.chronicle.emptyTitle) : L(S.chronicle.noResults),
                         systemImage: search.isEmpty ? "book.closed" : "magnifyingglass",
                         description: Text(search.isEmpty
-                            ? "Sem se zapíše každý uzavřený den. Uvidíš, co jsi splnil a co jsi za to postavil."
-                            : "Zkus jiný výraz.")
+                            ? L(S.chronicle.emptyBody)
+                            : L(S.chronicle.tryAnother))
                     )
                 } else {
                     ScrollView {
@@ -45,8 +45,8 @@ struct ChronicleView: View {
                     .background(Theme.creamGradient.ignoresSafeArea())
                 }
             }
-            .navigationTitle("Kronika")
-            .searchable(text: $search, prompt: "Hledat v tascích")
+            .navigationTitle(L(S.tabs.chronicle))
+            .searchable(text: $search, prompt: L(S.chronicle.searchPrompt))
         }
         .sheet(item: $selectedRecord) { rec in
             if let b = rec.buildings.first {
@@ -61,7 +61,7 @@ struct ChronicleView: View {
         HStack(spacing: 8) {
             Text(monthTitle(d))
                 .font(.system(.title3, design: .rounded).bold())
-            Text("\(count) \(count == 1 ? "den" : (count >= 2 && count <= 4 ? "dny" : "dnů"))")
+            Text(S.chronicle.days(count))
                 .font(.system(.caption, design: .rounded))
                 .foregroundStyle(Theme.creamLabel)
                 .padding(.horizontal, 8).padding(.vertical, 3)
@@ -95,7 +95,7 @@ struct ChronicleView: View {
 
     private func monthTitle(_ d: Date) -> String {
         d.formatted(.dateTime.month(.wide).year()
-            .locale(Locale(identifier: "cs"))).capitalized
+            .locale(Language.shared.current.locale)).capitalized
     }
 }
 
@@ -152,10 +152,10 @@ private struct ChronicleCard: View {
 
     private var dateBlock: some View {
         VStack(spacing: 0) {
-            Text(record.date, format: .dateTime.day().locale(Locale(identifier: "cs")))
+            Text(record.date, format: .dateTime.day().locale(Language.shared.current.locale))
                 .font(.system(.title2, design: .rounded).bold())
                 .monospacedDigit()
-            Text(record.date, format: .dateTime.weekday(.abbreviated).locale(Locale(identifier: "cs")))
+            Text(record.date, format: .dateTime.weekday(.abbreviated).locale(Language.shared.current.locale))
                 .font(.system(.caption2, design: .rounded))
                 .foregroundStyle(Theme.creamLabel)
         }
@@ -188,6 +188,6 @@ private struct ChronicleCard: View {
 
     private var summaryText: String {
         let texts = record.pillars.sorted { $0.order < $1.order }.map(\.text)
-        return texts.isEmpty ? "Bez pilířů" : texts.joined(separator: " · ")
+        return texts.isEmpty ? L(S.chronicle.noPillars) : texts.joined(separator: " · ")
     }
 }

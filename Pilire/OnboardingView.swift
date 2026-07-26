@@ -23,7 +23,7 @@ struct OnboardingView: View {
                 HStack {
                     Spacer()
                     if page < pages.count - 1 {
-                        Button("Přeskočit") { finish() }
+                        Button(L(S.onboarding.skip)) { finish() }
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .padding(.trailing, 24)
@@ -60,7 +60,7 @@ struct OnboardingView: View {
                         finish()
                     }
                 } label: {
-                    Text(page < pages.count - 1 ? "Pokračovat" : "Pojďme na to")
+                    Text(page < pages.count - 1 ? L(S.onboarding.next) : L(S.onboarding.start))
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
@@ -149,26 +149,26 @@ private struct OnboardPage {
 
     static let all: [OnboardPage] = [
         OnboardPage(
-            title: "Vítej v Pilířích",
-            subtitle: "Každé ráno si zapiš 3 až 5 nejdůležitějších úkolů dne, svoje pilíře. Žádný nekonečný seznam, jen to, na čem ti opravdu záleží.",
+            title: L(S.onboarding.page1Title),
+            subtitle: L(S.onboarding.page1Body),
             accent: Color(red: 0.91, green: 0.49, blue: 0.24),
             illustration: AnyView(ChecklistIllustration())
         ),
         OnboardPage(
-            title: "Plň a sbírej",
-            subtitle: "Za splněné pilíře dostáváš materiál, dřevo, cihly a ocel. Momentum ti odměny násobí a nikdy tě netrestá. Roste, když jsi aktivní, a po pauze klesá jen pomalu.",
+            title: L(S.onboarding.page2Title),
+            subtitle: L(S.onboarding.page2Body),
             accent: Color(red: 0.94, green: 0.72, blue: 0.18),
             illustration: AnyView(CoinsIllustration())
         ),
         OnboardPage(
-            title: "Postav své město",
-            subtitle: "Za nasbíraný materiál postavíš budovu podle vlastního výběru, kam chceš. Podrž a táhni, když ji chceš přesunout, dvojklikem ji otočíš.",
+            title: L(S.onboarding.page3Title),
+            subtitle: L(S.onboarding.page3Body),
             accent: Color(red: 0.36, green: 0.55, blue: 0.35),
             illustration: AnyView(IsoHouseIllustration())
         ),
         OnboardPage(
-            title: "Zkrášli ho",
-            subtitle: "Za nasbírané mince nakoupíš stromy, cesty a fontány. Ať tvoje město roste spolu s tebou.",
+            title: L(S.onboarding.page4Title),
+            subtitle: L(S.onboarding.page4Body),
             accent: Color(red: 0.33, green: 0.56, blue: 0.72),
             illustration: AnyView(DecorIllustration())
         ),

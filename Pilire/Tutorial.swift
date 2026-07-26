@@ -96,7 +96,7 @@ struct TutorialBanner: View {
 
                 if step == .addTask && currentTab != 1 {
                     Button(action: onGoToTasks) {
-                        Text("Otevřít Pilíře →")
+                        Text(L(S.tutorial.openPillars))
                             .font(.caption.bold())
                             .foregroundStyle(.orange)
                     }
@@ -130,11 +130,11 @@ struct TutorialBanner: View {
     private var text: String {
         switch step {
         case .addTask:
-            "Zapiš si svůj první pilíř, cokoli, co dnes dává smysl. Klidně „umýt nádobí“."
+            L(S.tutorial.step1)
         case .completeTask:
-            "Skvělé! Až to uděláš, odškrtni pilíř ťuknutím. Dostaneš za něj dřevo na stavbu."
+            L(S.tutorial.step2)
         case .build:
-            "Máš materiál. Ťukni na kladívko uprostřed a postav svůj první baráček."
+            L(S.tutorial.step3)
         }
     }
 }

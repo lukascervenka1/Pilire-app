@@ -12,11 +12,11 @@ struct NotificationManager {
         center.getNotificationSettings { settings in
             guard settings.authorizationStatus == .authorized else { return }
             schedule(id: "morning", hour: morningHour, minute: 0,
-                     title: "Jaké budou tvoje dnešní pilíře? 🏗",
-                     body: "Nastav si 1–5 cílů a postav budovu.")
+                     title: L(S.notifications.morningTitle),
+                     body: L(S.notifications.morningBody))
             schedule(id: "evening", hour: eveningHour, minute: 0,
-                     title: "Nezapomněl jsi uzavřít den? 🌙",
-                     body: "Odškrtni splněné pilíře a uzavři den.")
+                     title: L(S.notifications.eveningTitle),
+                     body: L(S.notifications.eveningBody))
         }
     }
 
@@ -40,13 +40,7 @@ struct NotificationManager {
 
     // MARK: - Habit reminders (gentle, Duolingo-like but never pushy)
 
-    private static let gentleBodies = [
-        "Žádný spěch, klidně až se to bude hodit.",
-        "Malý krok stačí. Město roste s tebou.",
-        "Jen jemné připomenutí, nic víc.",
-        "Klidně jen minutku. I ta se počítá.",
-        "Zkus to, až budeš mít chvilku.",
-    ]
+    private static let gentleBodies = S.notifications.gentleLines
 
     /// Re-plans one-shot habit reminders for the next 7 days.
     /// Skips today's reminder when the habit is already done — no pointless pings.
@@ -104,7 +98,7 @@ struct NotificationManager {
         guard taskRemindersEnabled, date > .now else { return }
         let content = UNMutableNotificationContent()
         content.title = "⏰ \(text)"
-        content.body  = "Naplánovaný pilíř, máš na něj čas?"
+        content.body  = L(S.notifications.pillarDue)
         content.sound = .default
 
         let comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)

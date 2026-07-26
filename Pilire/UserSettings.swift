@@ -194,9 +194,9 @@ struct ChestReward: Identifiable {
         case common, rare, epic
         var title: String {
             switch self {
-            case .common: "Truhla"
-            case .rare:   "Vzácná truhla"
-            case .epic:   "Zlatá truhla"
+            case .common: L(S.calendar.chestOpened)
+            case .rare:   L(S.calendar.chestRare)
+            case .epic:   L(S.calendar.chestEpic)
             }
         }
     }
@@ -211,10 +211,10 @@ struct ChestReward: Identifiable {
     /// Human-readable reward line, e.g. "60 mincí + 3 cihly".
     var label: String {
         var parts: [String] = []
-        if coins > 0 { parts.append("\(coins) mincí") }
-        if wood  > 0 { parts.append("\(wood) dřeva") }
-        if brick > 0 { parts.append("\(brick) cihel") }
-        if steel > 0 { parts.append("\(steel) oceli") }
+        if coins > 0 { parts.append("\(coins) \(L(S.common.coins).lowercased())") }
+        if wood  > 0 { parts.append("\(wood) \(Material.wood.displayName.lowercased())") }
+        if brick > 0 { parts.append("\(brick) \(Material.brick.displayName.lowercased())") }
+        if steel > 0 { parts.append("\(steel) \(Material.steel.displayName.lowercased())") }
         return parts.joined(separator: " + ")
     }
 }

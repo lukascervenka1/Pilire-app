@@ -50,7 +50,7 @@ enum CalendarManager {
             }
 
             reminder.title = habit.text
-            reminder.notes = "Návyk z aplikace Pilíře"
+            reminder.notes = L(S.notifications.habitNote)
 
             // First due occurrence: today (or the next scheduled day) at the habit time
             let mins = habit.reminderMinutes ?? 9 * 60

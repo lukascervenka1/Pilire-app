@@ -81,7 +81,7 @@ struct ResourceInfoModifier: ViewModifier {
                     Button {
                         show = false
                     } label: {
-                        Text("Rozumím")
+                        Text(L(S.info.understood))
                             .font(.headline)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 13)
@@ -98,7 +98,7 @@ struct ResourceInfoModifier: ViewModifier {
                 .presentationDetents([.height(320)])
                 .presentationDragIndicator(.visible)
             }
-            .accessibilityHint("Podržením zobrazíš vysvětlení.")
+            .accessibilityHint(L(S.info.holdHint))
     }
 }
 

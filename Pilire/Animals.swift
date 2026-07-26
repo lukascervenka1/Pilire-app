@@ -18,16 +18,17 @@ enum AnimalKind: String, Codable, CaseIterable, Identifiable {
         self = AnimalKind(rawValue: raw) ?? .dog
     }
 
+    @MainActor
     var displayName: String {
         switch self {
-        case .dog:    "Pes"
-        case .husky:  "Husky"
-        case .fox:    "Liška"
-        case .wolf:   "Vlk"
-        case .deer:   "Srnec"
-        case .cow:    "Kráva"
-        case .horse:  "Kůň"
-        case .alpaca: "Alpaka"
+        case .dog:    L(T(cs: "Pes", sk: "Pes", en: "Dog"))
+        case .husky:  L(T(cs: "Husky", sk: "Husky", en: "Husky"))
+        case .fox:    L(T(cs: "Liška", sk: "Líška", en: "Fox"))
+        case .wolf:   L(T(cs: "Vlk", sk: "Vlk", en: "Wolf"))
+        case .deer:   L(T(cs: "Srnec", sk: "Srnec", en: "Deer"))
+        case .cow:    L(T(cs: "Kráva", sk: "Krava", en: "Cow"))
+        case .horse:  L(T(cs: "Kůň", sk: "Kôň", en: "Horse"))
+        case .alpaca: L(T(cs: "Alpaka", sk: "Alpaka", en: "Alpaca"))
         }
     }
 
@@ -45,16 +46,41 @@ enum AnimalKind: String, Codable, CaseIterable, Identifiable {
         }
     }
 
+    @MainActor
     var shopDescription: String {
         switch self {
-        case .dog:    "Věrný parťák, občas vyběhne a dovádí"
-        case .husky:  "Neposedný severský pes plný energie"
-        case .fox:    "Zvědavá liška, čmuchá a klusá kolem"
-        case .wolf:   "Tichý vlk, obchází svoje území"
-        case .deer:   "Plachý srnec, popásá se na louce"
-        case .cow:    "V klidu přežvykuje na louce"
-        case .horse:  "Klidný kůň, prochází se mezi domy"
-        case .alpaca: "Rozvážná alpaka, pořád v pohodě"
+        case .dog:
+            L(T(cs: "Věrný parťák, občas vyběhne a dovádí",
+                sk: "Verný parťák, občas vybehne a dovádi",
+                en: "A loyal friend who breaks into the odd sprint"))
+        case .husky:
+            L(T(cs: "Neposedný severský pes plný energie",
+                sk: "Neposedný severský pes plný energie",
+                en: "A restless northern dog, full of energy"))
+        case .fox:
+            L(T(cs: "Zvědavá liška, čmuchá a klusá kolem",
+                sk: "Zvedavá líška, ňuchá a klusá okolo",
+                en: "A curious fox, sniffing and trotting about"))
+        case .wolf:
+            L(T(cs: "Tichý vlk, obchází svoje území",
+                sk: "Tichý vlk, obchádza svoje územie",
+                en: "A quiet wolf walking its territory"))
+        case .deer:
+            L(T(cs: "Plachý srnec, popásá se na louce",
+                sk: "Plachý srnec, pasie sa na lúke",
+                en: "A shy deer grazing in the meadow"))
+        case .cow:
+            L(T(cs: "V klidu přežvykuje na louce",
+                sk: "Pokojne prežúva na lúke",
+                en: "Chewing away peacefully in the grass"))
+        case .horse:
+            L(T(cs: "Klidný kůň, prochází se mezi domy",
+                sk: "Pokojný kôň, prechádza sa medzi domami",
+                en: "A calm horse wandering between the houses"))
+        case .alpaca:
+            L(T(cs: "Rozvážná alpaka, pořád v pohodě",
+                sk: "Rozvážna alpaka, stále v pohode",
+                en: "An unhurried alpaca, always at ease"))
         }
     }
 
@@ -177,6 +203,7 @@ final class OwnedAnimal {
     }
 
     /// Name to show — the given one, or the species as a fallback.
+    @MainActor
     var displayName: String { name.isEmpty ? kind.displayName : name }
 }
 

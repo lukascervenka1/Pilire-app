@@ -69,7 +69,7 @@ struct DailyView: View {
                 // clears the floating tab bar and can be pulled into view.
                 .contentMargins(.bottom, 96, for: .scrollContent)
                 .background(Theme.creamGradient.ignoresSafeArea())
-                .navigationTitle("Dnešní pilíře")
+                .navigationTitle(L(S.daily.title))
                 .toolbar { streakItem; habitsItem; settingsItem }
                 .sheet(isPresented: $showSettings) { SettingsView() }
                 .sheet(isPresented: $showHabits, onDismiss: {
@@ -101,7 +101,7 @@ struct DailyView: View {
                 }
                 .overlay(alignment: .top) { coinToast }
             } else {
-                ProgressView().navigationTitle("Dnešní pilíře")
+                ProgressView().navigationTitle(L(S.daily.title))
             }
         }
         .onAppear(perform: ensureToday)
@@ -137,17 +137,17 @@ struct DailyView: View {
 
     private func motivation(frac: Double, count: Int) -> String {
         switch frac {
-        case 1 where count > 0: "Pilíř dne máš hotový, dobrá práce."
-        case 0.5...:            "Skvěle, už jen pár bloků."
-        case 0.001...:          "První blok položen."
-        default: count == 0 ? "Polož základy dneška." : "Bloky čekají na položení."
+        case 1 where count > 0: L(S.daily.doneAll)
+        case 0.5...:            L(S.daily.halfWay)
+        case 0.001...:          L(S.daily.started)
+        default: count == 0 ? L(S.daily.empty) : L(S.daily.waiting)
         }
     }
 
     private func pillarsSection(_ day: DayRecord) -> some View {
         Section {
             if day.pillars.isEmpty {
-                Text("Zatím prázdno. Přidej první pilíř níže.")
+                Text(L(S.daily.noPillars))
                     .font(.subheadline).foregroundStyle(.secondary)
             }
             ForEach(day.pillars.sorted(by: { $0.order < $1.order })) { p in
@@ -156,7 +156,7 @@ struct DailyView: View {
                         Button {
                             pillarEdit = PillarEdit(id: p.id, text: p.text)
                         } label: {
-                            Label("Upravit", systemImage: "pencil")
+                            Label(L(S.common.edit), systemImage: "pencil")
                         }
                         .tint(.orange)
                     }
@@ -164,39 +164,39 @@ struct DailyView: View {
                         Button {
                             pillarEdit = PillarEdit(id: p.id, text: p.text)
                         } label: {
-                            Label("Upravit text", systemImage: "pencil")
+                            Label(L(S.daily.editText), systemImage: "pencil")
                         }
                         if !p.isHabit && !habits.contains(where: { $0.text == p.text }) {
                             Button {
                                 makeHabit(from: p.text)
                             } label: {
-                                Label("Udělat z toho návyk", systemImage: "repeat")
+                                Label(L(S.daily.makeHabit), systemImage: "repeat")
                             }
                         }
                         Button {
                             timeEdit = TimeEdit(id: p.id, date: p.scheduledAt ?? Self.nextFullHour())
                         } label: {
-                            Label(p.scheduledAt == nil ? "Naplánovat čas" : "Změnit čas",
+                            Label(p.scheduledAt == nil ? L(S.daily.scheduleTime) : L(S.daily.changeTime),
                                   systemImage: "clock")
                         }
                         Button {
                             addToCalendar(p, in: day)
                         } label: {
-                            Label(p.calendarEventID == nil ? "Přidat do Apple kalendáře" : "Znovu do kalendáře",
+                            Label(p.calendarEventID == nil ? L(S.daily.addToCalendar) : L(S.daily.addToCalendarAgain),
                                   systemImage: "calendar.badge.plus")
                         }
                         if p.scheduledAt != nil {
                             Button(role: .destructive) {
                                 clearTime(id: p.id, in: day)
                             } label: {
-                                Label("Zrušit čas", systemImage: "clock.badge.xmark")
+                                Label(L(S.daily.clearTime), systemImage: "clock.badge.xmark")
                             }
                         }
                     }
             }
             .onDelete { remove($0, from: day) }
         } header: {
-            Text("Bloky dneška")
+            Text(L(S.daily.blocksHeader))
                 .font(.system(.subheadline, design: .rounded).weight(.bold))
                 .foregroundStyle(Theme.creamLabel)
                 .textCase(nil)
@@ -206,7 +206,7 @@ struct DailyView: View {
     private func addSection(_ day: DayRecord) -> some View {
         Section {
             HStack {
-                TextField("Přidat pilíř...", text: $newText)
+                TextField(L(S.daily.addPlaceholder), text: $newText)
                     .submitLabel(.done)
                     .onSubmit { add(to: day) }
                 Button {
@@ -216,17 +216,17 @@ struct DailyView: View {
                         .foregroundStyle(withTime ? .orange : .secondary)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(withTime ? "Zrušit čas pilíře" : "Naplánovat čas pilíře")
+                .accessibilityLabel(withTime ? L(S.daily.cancelPillarTime) : L(S.daily.schedulePillarTime))
                 if !newText.isEmpty {
                     Button { add(to: day) } label: {
                         Image(systemName: "plus.circle.fill").foregroundStyle(.orange)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Přidat pilíř")
+                    .accessibilityLabel(L(S.daily.addPillar))
                 }
             }
             if withTime {
-                DatePicker("V kolik?", selection: $newTime, displayedComponents: .hourAndMinute)
+                DatePicker(L(S.habits.atWhatTime), selection: $newTime, displayedComponents: .hourAndMinute)
                     .font(.subheadline)
             }
 
@@ -254,7 +254,7 @@ struct DailyView: View {
                                 Button {
                                     makeHabit(from: text)
                                 } label: {
-                                    Label("Udělat z toho návyk", systemImage: "repeat")
+                                    Label(L(S.daily.makeHabit), systemImage: "repeat")
                                 }
                             }
                         }
@@ -266,7 +266,7 @@ struct DailyView: View {
             Button {
                 showPool = true
             } label: {
-                Label("Nevím, dej mi task", systemImage: "dice.fill")
+                Label(L(S.daily.giveMeTask), systemImage: "dice.fill")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.indigo)
             }
@@ -280,7 +280,7 @@ struct DailyView: View {
                 Button {
                     showHabits = true
                 } label: {
-                    Label("Vytvořit první návyk", systemImage: "repeat")
+                    Label(L(S.daily.firstHabit), systemImage: "repeat")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.indigo)
                 }
@@ -302,9 +302,9 @@ struct DailyView: View {
                                         Label(t, systemImage: "bell")
                                     }
                                     if !habit.isActive {
-                                        Text("· pozastaveno")
+                                        Text(L(S.misc.paused))
                                     } else if habit.isScheduled(on: day.date) {
-                                        Text("· dnes")
+                                        Text(L(S.misc.todayMark))
                                             .foregroundStyle(.indigo)
                                     }
                                 }
@@ -321,7 +321,7 @@ struct DailyView: View {
             }
         } header: {
             HStack {
-                Text("Pravidelné návyky")
+                Text(L(S.daily.habitsHeader))
                     .font(.system(.subheadline, design: .rounded).weight(.bold))
                     .foregroundStyle(Theme.creamLabel)
                     .textCase(nil)
@@ -330,7 +330,7 @@ struct DailyView: View {
                     Button {
                         showHabits = true
                     } label: {
-                        Label("Přidat", systemImage: "plus.circle.fill")
+                        Label(L(S.common.add), systemImage: "plus.circle.fill")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.indigo)
                             .textCase(nil)
@@ -340,7 +340,7 @@ struct DailyView: View {
             }
         } footer: {
             if !habits.isEmpty {
-                Text("Ťukni na návyk pro úpravu dnů, času nebo připomínky.")
+                Text(L(S.daily.habitsFooter))
             }
         }
     }
@@ -373,7 +373,7 @@ struct DailyView: View {
             VStack(spacing: 8) {
                 HoldToCloseButton(isCompleted: day.isCompleted) { close(day) }
                 if !day.isCompleted {
-                    Text("Podrž tlačítko, dokud se nevyplní.")
+                    Text(L(S.daily.holdHint))
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -405,7 +405,7 @@ struct DailyView: View {
             Button { showHabits = true } label: {
                 Image(systemName: "repeat")
             }
-            .accessibilityLabel("Pravidelné návyky")
+            .accessibilityLabel(L(S.daily.habitsHeader))
         }
     }
 
@@ -415,7 +415,7 @@ struct DailyView: View {
             Button { showSettings = true } label: {
                 Image(systemName: "gearshape")
             }
-            .accessibilityLabel("Nastavení")
+            .accessibilityLabel(L(S.settings.title))
         }
     }
 
@@ -506,14 +506,14 @@ struct DailyView: View {
                 }
                 .swipeActions(edge: .trailing) {
                     Button(role: .destructive) { removeFromTomorrow(p.id) } label: {
-                        Label("Smazat", systemImage: "trash")
+                        Label(L(S.common.delete), systemImage: "trash")
                     }
                 }
             }
 
             if tomorrowPillars.count < maxPillars {
                 HStack {
-                    TextField("Přidat na zítra...", text: $newTomorrowText)
+                    TextField(L(S.daily.tomorrowPlaceholder), text: $newTomorrowText)
                         .submitLabel(.done)
                         .onSubmit { addToTomorrow() }
                     if !newTomorrowText.isEmpty {
@@ -521,17 +521,17 @@ struct DailyView: View {
                             Image(systemName: "plus.circle.fill").foregroundStyle(.indigo)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Přidat pilíř na zítra")
+                        .accessibilityLabel(L(S.daily.addPillarTomorrow))
                     }
                 }
             }
         } header: {
-            Text("Plán na zítra")
+            Text(L(S.daily.tomorrowHeader))
                 .font(.system(.subheadline, design: .rounded).weight(.bold))
                 .foregroundStyle(Theme.creamLabel)
                 .textCase(nil)
         } footer: {
-            Text("Ať ráno nemusíš přemýšlet, čím začít.")
+            Text(L(S.daily.tomorrowFooter))
         }
     }
 
@@ -592,11 +592,11 @@ struct DailyView: View {
                         Text(item.pillar.text)
                             .font(.system(.subheadline, design: .rounded))
                         Text(item.record.date, format: Date.FormatStyle(date: .abbreviated)
-                            .locale(Locale(identifier: "cs")))
+                            .locale(Language.shared.current.locale))
                             .font(.caption2).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 4)
-                    Button("Přenést") { carryOver(item) }
+                    Button(L(S.daily.carry)) { carryOver(item) }
                         .font(.system(.subheadline, design: .rounded).bold())
                         .foregroundStyle(Theme.accentBottom)
                         .buttonStyle(.plain)
@@ -605,28 +605,28 @@ struct DailyView: View {
                 .contentShape(Rectangle())
                 .contextMenu {
                     Button(role: .destructive) { deleteCarryOver(item) } label: {
-                        Label("Smazat", systemImage: "trash")
+                        Label(L(S.common.delete), systemImage: "trash")
                     }
                 }
                 .swipeActions(edge: .trailing) {
                     Button(role: .destructive) { deleteCarryOver(item) } label: {
-                        Label("Smazat", systemImage: "trash")
+                        Label(L(S.common.delete), systemImage: "trash")
                     }
                 }
             }
         } header: {
             HStack {
-                Text("Nedokončené z dřívějška")
+                Text(L(S.daily.carryHeader))
                 Spacer()
                 if items.count > 1 {
-                    Button("Přenést vše") { for i in items { carryOver(i) } }
+                    Button(L(S.daily.carryAll)) { for i in items { carryOver(i) } }
                         .font(.caption.bold())
                         .foregroundStyle(Theme.accentBottom)
                         .textCase(nil)
                 }
             }
         } footer: {
-            Text("Přenes je do dneška a zkus to znovu, nebo je podrž a smaž.")
+            Text(L(S.daily.carryFooter))
         }
     }
 
@@ -717,7 +717,7 @@ struct DailyView: View {
             if let eventID = await CalendarManager.addEvent(
                 title: pillar.text,
                 start: start,
-                notes: "Pilíř dne z aplikace Pilíře"
+                notes: L(S.daily.calendarNote)
             ) {
                 if let i = day.pillars.firstIndex(where: { $0.id == pillar.id }) {
                     day.pillars[i].calendarEventID = eventID
@@ -849,18 +849,18 @@ struct TimeEditSheet: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 20) {
-                DatePicker("Čas", selection: $date, displayedComponents: .hourAndMinute)
+                DatePicker(L(S.daily.time), selection: $date, displayedComponents: .hourAndMinute)
                     .datePickerStyle(.wheel)
                     .labelsHidden()
 
-                Text("Na tento čas ti přijde připomínka.")
+                Text(L(S.daily.timeNote))
                     .font(.caption).foregroundStyle(.secondary)
 
                 Button {
                     onSave(date)
                     dismiss()
                 } label: {
-                    Text("Uložit")
+                    Text(L(S.common.save))
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 13)
@@ -871,10 +871,10 @@ struct TimeEditSheet: View {
                 .padding(.horizontal, 24)
             }
             .padding(.top, 8)
-            .navigationTitle("Naplánovat čas")
+            .navigationTitle(L(S.daily.timeSheetTitle))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { Button("Zavřít") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) { Button(L(S.common.close)) { dismiss() } }
             }
         }
         .presentationDetents([.height(360)])
@@ -894,7 +894,7 @@ struct PillarEditSheet: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 20) {
-                TextField("Text pilíře", text: $text, axis: .vertical)
+                TextField(L(S.daily.pillarText), text: $text, axis: .vertical)
                     .focused($focused)
                     .font(.system(.title3, design: .rounded))
                     .lineLimit(1...4)
@@ -904,7 +904,7 @@ struct PillarEditSheet: View {
                     .onSubmit { save() }
 
                 Button(action: save) {
-                    Text("Uložit")
+                    Text(L(S.common.save))
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 13)
@@ -918,10 +918,10 @@ struct PillarEditSheet: View {
                 Spacer()
             }
             .padding(20)
-            .navigationTitle("Upravit pilíř")
+            .navigationTitle(L(S.daily.editSheetTitle))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { Button("Zavřít") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) { Button(L(S.common.close)) { dismiss() } }
             }
         }
         .presentationDetents([.height(280)])
@@ -983,14 +983,14 @@ struct HoldToCloseButton: View {
             if pressing { beginHold() } else { endHold() }
         }
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel(isCompleted ? "Den uzavřen" : "Uzavřít den")
-        .accessibilityHint(isCompleted ? "" : "Podrž pro uzavření dne")
+        .accessibilityLabel(isCompleted ? L(S.daily.dayClosed) : L(S.daily.closeDayShort))
+        .accessibilityHint(isCompleted ? "" : L(S.daily.closeDay))
         .accessibilityAction { if !isCompleted { fire() } }
     }
 
     private var labelText: String {
-        if isCompleted { return "Den uzavřen" }
-        return isHolding ? "Držte…" : "Podrž pro uzavření dne"
+        if isCompleted { return L(S.daily.dayClosed) }
+        return isHolding ? L(S.daily.holding) : L(S.daily.closeDay)
     }
 
     private func beginHold() {

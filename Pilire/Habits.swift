@@ -42,12 +42,14 @@ final class Habit {
         return weekdayIndices.isEmpty || weekdayIndices.contains(Self.weekdayIndex(of: date))
     }
 
+    @MainActor
     var daysSummary: String {
-        guard !weekdayIndices.isEmpty else { return "Každý den" }
+        guard !weekdayIndices.isEmpty else { return L(S.habits.everyDay) }
         return weekdayIndices.sorted().map { Habit.dayLabels[$0] }.joined(separator: " ")
     }
 
-    static let dayLabels = ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"]
+    @MainActor
+    static var dayLabels: [String] { S.habits.dayLabels }
 }
 
 // MARK: - Habits management sheet
@@ -68,11 +70,11 @@ struct HabitsView: View {
             List {
                 if habits.isEmpty {
                     Section {
-                        Text("Návyk je pilíř, který se každé ráno sám zapíše do tvého dne. Třeba „Protáhnout se“ nebo „Zalít kytky v pondělí“.")
+                        Text(L(S.habits.intro))
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
                 } else {
-                    Section("Moje návyky") {
+                    Section(L(S.habits.mine)) {
                         ForEach(habits) { habit in
                             Button {
                                 editHabit = habit
@@ -119,7 +121,7 @@ struct HabitsView: View {
                 }
 
                 Section {
-                    TextField("Co chceš dělat pravidelně?", text: $newText)
+                    TextField(L(S.habits.newPlaceholder), text: $newText)
                         .submitLabel(.done)
                         .onSubmit(add)
 
@@ -143,37 +145,37 @@ struct HabitsView: View {
                     .padding(.vertical, 2)
 
                     if newDays.isEmpty {
-                        Text("Bez výběru dní se návyk přidává každý den.")
+                        Text(L(S.habits.noDaysNote))
                             .font(.caption).foregroundStyle(.secondary)
                     }
 
                     Toggle(isOn: $newReminder) {
-                        Label("Připomenout", systemImage: "bell")
+                        Label(L(S.habits.remind), systemImage: "bell")
                             .font(.subheadline)
                     }
                     .tint(.indigo)
                     if newReminder {
-                        DatePicker("V kolik?", selection: $newTime, displayedComponents: .hourAndMinute)
+                        DatePicker(L(S.habits.atWhatTime), selection: $newTime, displayedComponents: .hourAndMinute)
                             .font(.subheadline)
                     }
 
                     Button(action: add) {
-                        Label("Přidat návyk", systemImage: "plus.circle.fill")
+                        Label(L(S.habits.addHabit), systemImage: "plus.circle.fill")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.indigo)
                     }
                     .disabled(newText.trimmingCharacters(in: .whitespaces).isEmpty)
                 } header: {
-                    Text("Nový návyk")
+                    Text(L(S.habits.newHabit))
                 } footer: {
-                    Text("Aktivní návyky se každé ráno samy objeví mezi pilíři dne.")
+                    Text(L(S.habits.newFooter))
                 }
             }
-            .navigationTitle("Návyky")
+            .navigationTitle(L(S.habits.title))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Hotovo") {
+                    Button(L(S.common.done)) {
                         add()          // don't silently drop a half-typed habit
                         dismiss()
                     }
@@ -211,8 +213,8 @@ struct HabitEditSheet: View {
         NavigationStack {
             Form {
                 historySection
-                Section("Návyk") {
-                    TextField("Název", text: $habit.text)
+                Section(L(S.habits.habitSection)) {
+                    TextField(L(S.habits.name), text: $habit.text)
 
                     HStack(spacing: 6) {
                         ForEach(0..<7, id: \.self) { i in
@@ -237,22 +239,22 @@ struct HabitEditSheet: View {
                     .padding(.vertical, 2)
 
                     if habit.weekdayIndices.isEmpty {
-                        Text("Bez výběru dní se návyk přidává každý den.")
+                        Text(L(S.habits.noDaysNote))
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
 
-                Section("Připomínka") {
+                Section(L(S.habits.reminderSection)) {
                     Toggle(isOn: Binding(
                         get: { habit.reminderMinutes != nil },
                         set: { habit.reminderMinutes = $0 ? 8 * 60 : nil }
                     )) {
-                        Label("Připomenout", systemImage: "bell")
+                        Label(L(S.habits.remind), systemImage: "bell")
                     }
                     .tint(.indigo)
 
                     if habit.reminderMinutes != nil {
-                        DatePicker("V kolik?", selection: Binding(
+                        DatePicker(L(S.habits.atWhatTime), selection: Binding(
                             get: { Habit.date(fromMinutes: habit.reminderMinutes ?? 8 * 60) },
                             set: { habit.reminderMinutes = Habit.minutes(from: $0) }
                         ), displayedComponents: .hourAndMinute)
@@ -283,20 +285,20 @@ struct HabitEditSheet: View {
                             }
                         }
                     )) {
-                        Label("Aplikace Připomínky", systemImage: "checklist")
+                        Label(L(S.habits.remindersApp), systemImage: "checklist")
                     }
                     .tint(.indigo)
                 } header: {
-                    Text("Integrace")
+                    Text(L(S.misc.integrations))
                 } footer: {
                     Text(remindersExportFailed
-                         ? "Nepodařilo se. Povol Pilířům přístup k Připomínkám v Nastavení systému."
-                         : "Vytvoří opakovanou připomínku v Apple Připomínkách podle dnů a času návyku.")
+                         ? L(S.habits.remindersFailed)
+                         : L(S.habits.remindersNote))
                 }
 
                 Section {
                     Toggle(isOn: $habit.isActive) {
-                        Label("Aktivní", systemImage: "repeat")
+                        Label(L(S.habits.active), systemImage: "repeat")
                     }
                     .tint(.indigo)
 
@@ -308,15 +310,15 @@ struct HabitEditSheet: View {
                         ctx.saveChanges()
                         dismiss()
                     } label: {
-                        Label("Smazat návyk", systemImage: "trash")
+                        Label(L(S.habits.deleteHabit), systemImage: "trash")
                     }
                 }
             }
-            .navigationTitle("Upravit návyk")
+            .navigationTitle(L(S.habits.editHabit))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Hotovo") {
+                    Button(L(S.common.done)) {
                         ctx.saveChanges()
                         // Push edits (days/time/name) into the exported reminder
                         if habit.remindersID != nil {
@@ -369,12 +371,12 @@ struct HabitEditSheet: View {
                         .frame(height: 24)
                     }
                 }
-                Text("Splněno \(doneCount)× za posledních 5 týdnů")
+                Text(L(S.habits.doneInWeeks, doneCount))
                     .font(.caption).foregroundStyle(.secondary)
             }
             .padding(.vertical, 4)
         } header: {
-            Text("Historie")
+            Text(L(S.misc.history))
         }
     }
 

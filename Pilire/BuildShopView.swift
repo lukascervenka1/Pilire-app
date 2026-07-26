@@ -118,7 +118,7 @@ struct BuildShopView: View {
                                 .background((exp.canAfford ? Color.green : Color.secondary).opacity(0.12),
                                             in: RoundedRectangle(cornerRadius: Theme.rowRadius))
                             VStack(alignment: .leading, spacing: 3) {
-                                Text("Rozšířit město")
+                                Text(L(S.map.expand))
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(.primary)
                                 Text("\(exp.fromSize)×\(exp.fromSize) → \(exp.toSize)×\(exp.toSize) za \(exp.costLabel)")
@@ -138,21 +138,21 @@ struct BuildShopView: View {
                     .opacity(exp.canAfford ? 1 : 0.55)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 20)
-                    .confirmationDialog("Rozšířit město?", isPresented: $confirmExpand, titleVisibility: .visible) {
-                        Button("Rozšířit za \(exp.costLabel)") {
+                    .confirmationDialog(L(S.map.expandQuestion), isPresented: $confirmExpand, titleVisibility: .visible) {
+                        Button(L(S.map.expandFor, exp.costLabel)) {
                             onExpand()
                             dismiss()
                         }
-                        Button("Zrušit", role: .cancel) {}
+                        Button(L(S.common.cancel), role: .cancel) {}
                     } message: {
-                        Text("Ostrov se zvětší a tvé město zůstane uprostřed.")
+                        Text(L(S.map.expandNote))
                     }
                 }
             }
-            .navigationTitle("Postavit budovu")
+            .navigationTitle(L(S.misc.buildBuilding))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { Button("Zavřít") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) { Button(L(S.common.close)) { dismiss() } }
             }
         }
     }
@@ -246,11 +246,11 @@ extension Material {
     var infoText: String {
         switch self {
         case .wood:
-            "Dostaneš ho hned za každý splněný pilíř. Základní materiál, ze kterého stavíš budovy."
+            L(S.map.woodInfo)
         case .brick:
-            "Získáš je při uzavření dne, když splníš aspoň 2 pilíře. Potřeba na větší stavby."
+            L(S.map.brickInfo)
         case .steel:
-            "Získáš ji při uzavření dne se 4 a více pilíři, bonus za stoprocentní den. Vzácný materiál na ty největší stavby."
+            L(S.map.steelInfo)
         }
     }
 }
@@ -270,20 +270,20 @@ struct PayoutView: View {
                 .foregroundStyle(.green)
                 .padding(.top, 28)
 
-            Text("Den uzavřen")
+            Text(L(S.map.dayClosedTitle))
                 .font(.system(.title2, design: .rounded).bold())
 
             VStack(spacing: 10) {
                 if payout.brick > 0 { payoutRow(.brick, payout.brick) }
                 if payout.steel > 0 { payoutRow(.steel, payout.steel) }
                 if payout.brick == 0 && payout.steel == 0 {
-                    Text("Dřevo za jednotlivé tasky už máš v kapse.")
+                    Text(L(S.map.woodAlready))
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 if payout.momentumGained > 0 {
                     HStack(spacing: 6) {
                         Image(systemName: "leaf.fill").foregroundStyle(.green)
-                        Text("Momentum +\(Int(payout.momentumGained))")
+                        Text(L(S.misc.momentumGain, Int(payout.momentumGained)))
                             .font(.subheadline.weight(.semibold))
                     }
                     .padding(.top, 2)
@@ -295,7 +295,7 @@ struct PayoutView: View {
                 dismiss()
                 onBuild()
             } label: {
-                Label("Postavit budovu", systemImage: "hammer.fill")
+                Label(L(S.misc.buildBuilding), systemImage: "hammer.fill")
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
@@ -308,7 +308,7 @@ struct PayoutView: View {
             .buttonStyle(.plain)
             .padding(.horizontal, 24)
 
-            Button("Zavřít") { dismiss() }
+            Button(L(S.common.close)) { dismiss() }
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .padding(.bottom, 16)

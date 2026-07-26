@@ -4,6 +4,7 @@ import SwiftUI
 
 struct RootView: View {
     @State private var showSplash = true
+    @State private var language = Language.shared
 
     var body: some View {
         ZStack {
@@ -13,10 +14,19 @@ struct RootView: View {
                     .transition(.opacity)
                     .zIndex(1)
             }
+            // First launch: pick a language before anything else happens.
+            if !language.hasChosen {
+                LanguagePickerView { picked in
+                    withAnimation(.easeOut(duration: 0.3)) { language.choose(picked) }
+                }
+                .transition(.opacity)
+                .zIndex(2)
+            }
         }
-        // App ships Czech-first for now; proper String Catalog localization
-        // (CZ/SK/EN) comes later — this keeps dates & calendars Czech everywhere.
-        .environment(\.locale, Locale(identifier: "cs"))
+        // Dates, calendars and number formats follow the chosen language, and
+        // the id forces a clean redraw when it changes.
+        .environment(\.locale, language.current.locale)
+        .id(language.current)
         // The whole app uses one warm, light look. Lock to light mode so the
         // branded cream/pastel design stays consistent regardless of the phone's
         // system appearance.
@@ -173,26 +183,7 @@ struct PillarLogoView: View {
 // MARK: - Motivational quotes
 
 enum SplashQuotes {
-    static let all: [String] = [
-        "Malé kroky staví velká města.",
-        "Dnešek je nový kámen v základech.",
-        "Nemusíš všechno. Stačí něco.",
-        "Každý splněný úkol je cihla k lepšímu dni.",
-        "Pomalu se taky dojde daleko.",
-        "Tvoje město roste s tebou.",
-        "I odpočinek je pilíř.",
-        "Začni tím nejmenším.",
-        "Dnes stačí jeden dobrý krok.",
-        "Silné základy se staví každý den.",
-        "Co uděláš dnes, zůstane stát.",
-        "Není třeba spěchat, jen nepřestat.",
-        "I šedý den může položit zlatý kámen.",
-        "Buď na sebe hodný, stavíš celý svět.",
-        "Jeden pilíř stačí, aby den stál.",
-        "Velké katedrály začínaly jedním kamenem.",
-        "Včerejšek je postaven. Dnešek čeká.",
-        "Města nerostou přes noc. Ty taky ne, a to je v pořádku.",
-    ]
+    static var all: [String] { S.quotes.all }
 
     static func random() -> String {
         all.randomElement() ?? all[0]

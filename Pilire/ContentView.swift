@@ -218,88 +218,88 @@ struct ContentView: View {
             }
         }
         .confirmationDialog(
-            "Odstranit \(decoToRemove?.type.displayName.lowercased() ?? "")?",
+            L(S.town.removeQuestion, decoToRemove?.type.displayName.lowercased() ?? ""),
             isPresented: Binding(get: { decoToRemove != nil },
                                  set: { if !$0 { decoToRemove = nil } }),
             titleVisibility: .visible
         ) {
-            Button("Odstranit (+\((decoToRemove?.type.cost ?? 0) / 2) mincí zpět)", role: .destructive) {
+            Button(L(S.town.removeRefund, (decoToRemove?.type.cost ?? 0) / 2), role: .destructive) {
                 removeDecoration()
             }
-            Button("Zrušit", role: .cancel) {}
+            Button(L(S.common.cancel), role: .cancel) {}
         } message: {
-            Text("Přesunout ji můžeš i podržením a tažením.")
+            Text(L(S.town.dragToMove))
         }
         .confirmationDialog(
-            tappedAnimal?.node.associatedAnimal?.displayName ?? "Zvíře",
+            tappedAnimal?.node.associatedAnimal?.displayName ?? L(S.town.animal),
             isPresented: Binding(get: { tappedAnimal != nil },
                                  set: { if !$0 { tappedAnimal = nil } }),
             titleVisibility: .visible
         ) {
             if let t = tappedAnimal {
                 if t.node.isSleeping {
-                    Button("Probudit") { t.node.wake(); tappedAnimal = nil }
+                    Button(L(S.town.wakeUp)) { t.node.wake(); tappedAnimal = nil }
                 } else if t.node.hasKennel {
-                    Button("Poslat do boudy") { t.node.sendToKennel(); tappedAnimal = nil }
+                    Button(L(S.town.sendToKennel)) { t.node.sendToKennel(); tappedAnimal = nil }
                 }
-                Button("Uklidit na odpočinek") {
+                Button(L(S.town.tuckAway)) {
                     if let a = t.node.associatedAnimal { animalToTuck = a }
                     tappedAnimal = nil
                 }
             }
-            Button("Zrušit", role: .cancel) {}
+            Button(L(S.common.cancel), role: .cancel) {}
         } message: {
-            Text("Podrž na něm prst a můžeš ho přenést jinam po mapě.")
+            Text(L(S.town.carryHint))
         }
         .confirmationDialog(
-            "Psí bouda",
+            L(S.town.doghouse),
             isPresented: Binding(get: { doghouseToFeed != nil },
                                  set: { if !$0 { doghouseToFeed = nil } }),
             titleVisibility: .visible
         ) {
             if doghouseToFeed?.hasFood == true {
-                Button("V misce už žrádlo je") {}.disabled(true)
+                Button(L(S.town.bowlFull)) {}.disabled(true)
             } else {
-                Button("Nasypat žrádlo (\(DecorationItem.dogFoodPrice) mincí)") { fillDogBowl() }
+                Button(L(S.town.fillBowl, DecorationItem.dogFoodPrice)) { fillDogBowl() }
             }
-            Button("Napsat jméno na boudu") {
+            Button(L(S.town.nameKennel)) {
                 kennelName = doghouseToFeed?.label ?? ""
                 doghouseToRename = doghouseToFeed
                 doghouseToFeed = nil
             }
-            Button("Odstranit boudu", role: .destructive) {
+            Button(L(S.town.removeKennel), role: .destructive) {
                 if let dec = doghouseToFeed,
                    let node = scene.decorationNodes.first(where: { $0.associatedDecoration === dec }) {
                     doghouseToFeed = nil
                     decoToRemove = node
                 }
             }
-            Button("Zrušit", role: .cancel) {}
+            Button(L(S.common.cancel), role: .cancel) {}
         } message: {
             Text(doghouseToFeed?.hasFood == true
-                 ? "Miska je plná. Za chvíli si pro ni pes přijde."
-                 : "Po setmění tu spí pes. Můžeš mu nasypat do misky.")
+                 ? L(S.town.bowlFullNote)
+                 : L(S.town.kennelNote))
         }
-        .alert("Jméno na boudu", isPresented: Binding(
+        .alert(L(S.town.kennelNameTitle), isPresented: Binding(
             get: { doghouseToRename != nil },
             set: { if !$0 { doghouseToRename = nil } })
         ) {
-            TextField("Třeba Rex", text: $kennelName)
-            Button("Uložit") { saveKennelName() }
-            Button("Zrušit", role: .cancel) { doghouseToRename = nil }
+            TextField(L(S.town.kennelNamePlaceholder), text: $kennelName)
+            Button(L(S.common.save)) { saveKennelName() }
+            Button(L(S.common.cancel), role: .cancel) { doghouseToRename = nil }
         } message: {
-            Text("Napiš jméno svého psa. Objeví se na cedulce nad boudou.")
+            Text(L(S.town.kennelNameNote))
         }
         .confirmationDialog(
-            "Uklidit \(animalToTuck?.kind.displayName.lowercased() ?? "") na odpočinek?",
+            L(S.town.tuckQuestion, animalToTuck?.kind.displayName.lowercased() ?? ""),
             isPresented: Binding(get: { animalToTuck != nil },
                                  set: { if !$0 { animalToTuck = nil } }),
             titleVisibility: .visible
         ) {
-            Button("Uklidit na odpočinek") { tuckAnimal() }
-            Button("Zrušit", role: .cancel) {}
+            Button(L(S.town.tuckAway)) { tuckAnimal() }
+            Button(L(S.common.cancel), role: .cancel) {}
         } message: {
-            Text("Zmizí z mapy a počká v obchodě. Kdykoli ho zase pustíš ven ze sekce Na odpočinku.")
+            Text(L(S.town.tuckNote))
         }
     }
 
@@ -376,9 +376,9 @@ struct ContentView: View {
         .padding(.horizontal, 9).padding(.vertical, 6)
         .background(.regularMaterial, in: Capsule())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Mince: \(settings.coinBalance)")
-        .resourceInfo(icon: "seal.fill", tint: .yellow, "Mince",
-                      "Dostaneš je za první otevření aplikace v den. Utratíš je v obchodě za dekorace, směnu materiálu a rozšíření mapy.")
+        .accessibilityLabel(L(S.misc.coinsLabel, settings.coinBalance))
+        .resourceInfo(icon: "seal.fill", tint: .yellow, L(S.common.coins),
+                      L(S.town.coinsInfo))
     }
 
     private var momentumBadge: some View {
@@ -392,9 +392,9 @@ struct ContentView: View {
         .padding(.horizontal, 9).padding(.vertical, 6)
         .background(.regularMaterial, in: Capsule())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Momentum: \(Int(settings.momentum))")
-        .resourceInfo(icon: "leaf.fill", tint: .green, "Momentum",
-                      "Roste o 1 za každý den, kdy appku otevřeš, a o 1 klesá za vynechaný den. Násobí odměny z pilířů a nikdy tě netrestá.")
+        .accessibilityLabel(L(S.misc.momentumLabel, Int(settings.momentum)))
+        .resourceInfo(icon: "leaf.fill", tint: .green, L(S.town.momentum),
+                      L(S.town.momentumInfo))
     }
 
     private var shopButton: some View {
@@ -405,13 +405,13 @@ struct ContentView: View {
                 .background(.regularMaterial, in: Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Obchod")
+        .accessibilityLabel(L(S.shop.title))
     }
 
     private func loginRewardToast(_ n: Int) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "seal.fill").foregroundStyle(.yellow)
-            Text("+\(n) za dnešní návštěvu")
+            Text(L(S.town.visitReward, n))
                 .font(.subheadline.weight(.semibold))
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
@@ -423,20 +423,20 @@ struct ContentView: View {
         HStack(spacing: 10) {
             if let b = placingBuilding {
                 Image(systemName: "hammer.fill")
-                Text("Ťukni kam postavit: \(b.displayName)").font(.subheadline)
+                Text(L(S.town.tapToBuild, b.displayName)).font(.subheadline)
             } else if placingItem == .road {
                 Image(systemName: "hand.draw.fill")
-                Text("Táhni prstem a stav cestu (\(DecorationItem.road.cost) mincí za políčko)")
+                Text(L(S.town.dragPath, DecorationItem.road.cost))
                     .font(.subheadline)
             } else if let item = placingItem, item.canUseCornerAnchor {
                 Image(systemName: "leaf.fill")
-                Text("Ťukni kam umístit: \(item.displayName). Jde i do rohu mezi políčka.")
+                Text(L(S.town.tapToPlaceCorner, item.displayName))
                     .font(.subheadline)
             } else {
-                Text("Ťukni kam umístit: \(placingItem?.displayName ?? "")").font(.subheadline)
+                Text(L(S.town.tapToPlace, placingItem?.displayName ?? "")).font(.subheadline)
             }
             Spacer()
-            Button(placingItem == .road ? "Hotovo" : "Zrušit") {
+            Button(placingItem == .road ? L(S.common.done) : L(S.common.cancel)) {
                 endPlacement()
             }
             .font(.subheadline.bold())
@@ -489,11 +489,11 @@ struct ContentView: View {
 
     private var expansionCostLabel: String {
         let c = expansionCost
-        if c.coins > 0 { return "\(c.coins) mincí" }
+        if c.coins > 0 { return "\(c.coins) \(L(S.common.coins).lowercased())" }
         var parts: [String] = []
-        if c.cost.wood > 0  { parts.append("\(c.cost.wood) dřeva") }
-        if c.cost.brick > 0 { parts.append("\(c.cost.brick) cihel") }
-        if c.cost.steel > 0 { parts.append("\(c.cost.steel) oceli") }
+        if c.cost.wood > 0  { parts.append("\(c.cost.wood) \(Material.wood.displayName.lowercased())") }
+        if c.cost.brick > 0 { parts.append("\(c.cost.brick) \(Material.brick.displayName.lowercased())") }
+        if c.cost.steel > 0 { parts.append("\(c.cost.steel) \(Material.steel.displayName.lowercased())") }
         return parts.joined(separator: ", ")
     }
 

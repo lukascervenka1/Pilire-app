@@ -14,7 +14,7 @@ struct CalendarView: View {
 
     private let cal: Calendar = {
         var c = Calendar.current
-        c.locale = Locale(identifier: "cs")
+        c.locale = Language.shared.current.locale
         return c
     }()
 
@@ -39,7 +39,7 @@ struct CalendarView: View {
                 .padding(.bottom, 24)
             }
             .background(Theme.creamGradient.ignoresSafeArea())
-            .navigationTitle("Kalendář")
+            .navigationTitle(L(S.calendar.title))
             .navigationBarTitleDisplayMode(.large)
         }
         .sheet(item: $selectedRecord) { rec in
@@ -65,7 +65,7 @@ struct CalendarView: View {
         HStack {
             monthButton("chevron.left") { shiftMonth(-1) }
             Spacer()
-            Text(displayMonth, format: .dateTime.month(.wide).year().locale(Locale(identifier: "cs")))
+            Text(displayMonth, format: .dateTime.month(.wide).year().locale(Language.shared.current.locale))
                 .font(.system(.headline, design: .rounded))
                 .textCase(nil)
                 .contentTransition(.numericText())
@@ -92,9 +92,9 @@ struct CalendarView: View {
     private var statsRow: some View {
         let s = monthStats
         return HStack(spacing: 10) {
-            statChip(value: s.active, label: "aktivní dny", symbol: "flame.fill", tint: .orange)
-            statChip(value: s.full, label: "vše splněno", symbol: "checkmark.seal.fill", tint: .green)
-            statChip(value: s.buildings, label: s.buildings == 1 ? "budova" : "budovy", symbol: "house.fill", tint: Color(red: 0.58, green: 0.42, blue: 0.25))
+            statChip(value: s.active, label: L(S.calendar.activeDays), symbol: "flame.fill", tint: .orange)
+            statChip(value: s.full, label: L(S.calendar.allDone), symbol: "checkmark.seal.fill", tint: .green)
+            statChip(value: s.buildings, label: s.buildings == 1 ? L(S.calendar.building) : L(S.calendar.buildings), symbol: "house.fill", tint: Color(red: 0.58, green: 0.42, blue: 0.25))
         }
     }
 
@@ -231,8 +231,8 @@ struct CalendarView: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(ready > 0
-                         ? (ready == 1 ? "Truhla je připravená!" : "Máš \(ready) truhly!")
-                         : "Týdenní truhla")
+                         ? (ready == 1 ? L(S.calendar.chestReady) : L(S.calendar.chestReadyMany, ready))
+                         : L(S.calendar.chestTitle))
                         .font(.system(.subheadline, design: .rounded).bold())
                         .foregroundStyle(ready > 0 ? Theme.accentBottom : .primary)
                     Text(bannerSubtitle(ready: ready))
@@ -244,7 +244,7 @@ struct CalendarView: View {
                 Spacer(minLength: 0)
 
                 if ready > 0 {
-                    Text("Otevřít")
+                    Text(L(S.calendar.open))
                         .font(.system(.subheadline, design: .rounded).bold())
                         .foregroundStyle(.white)
                         .padding(.horizontal, 12).padding(.vertical, 7)
@@ -269,9 +269,9 @@ struct CalendarView: View {
     }
 
     private func bannerSubtitle(ready: Int) -> String {
-        if ready > 1 { return "Klepni a otevři je jednu po druhé. Co v nich je, zjistíš až uvnitř." }
-        if ready == 1 { return "Klepni a otevři svou týdenní odměnu." }
-        return "Splň aspoň jeden pilíř každý den v týdnu. Tento týden máš \(currentWeekProgress)/7."
+        if ready > 1 { return L(S.calendar.chestHintMany) }
+        if ready == 1 { return L(S.calendar.chestHintOne) }
+        return L(S.calendar.chestHintProgress, currentWeekProgress)
     }
 
     // MARK: - Legend
@@ -279,13 +279,13 @@ struct CalendarView: View {
     private var legendRow: some View {
         VStack(spacing: 8) {
             HStack(spacing: 14) {
-                legendSquare(fill: DayCell.fullColor, label: "Vše splněno")
-                legendSquare(fill: Color.orange.opacity(0.30), label: "Částečně")
-                legendSquare(fill: Color.primary.opacity(0.05), label: "Bez záznamu")
+                legendSquare(fill: DayCell.fullColor, label: L(S.calendar.legendAllDone))
+                legendSquare(fill: Color.orange.opacity(0.30), label: L(S.calendar.legendPartly))
+                legendSquare(fill: Color.primary.opacity(0.05), label: L(S.calendar.legendNothing))
             }
             HStack(spacing: 14) {
-                legendDot(color: Color(red: 0.58, green: 0.42, blue: 0.25), label: "Postavená budova")
-                legendDot(color: .indigo, label: "Splněný návyk")
+                legendDot(color: Color(red: 0.58, green: 0.42, blue: 0.25), label: L(S.calendar.legendBuilding))
+                legendDot(color: .indigo, label: L(S.calendar.legendHabit))
             }
         }
         .font(.system(.caption2, design: .rounded))
@@ -433,7 +433,7 @@ struct CalendarBuildingSheet: View {
 
                     if !record.pillars.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Pilíře dne").font(.headline)
+                            Text(L(S.calendar.dayPillars)).font(.headline)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             ForEach(record.pillars.sorted(by: { $0.order < $1.order })) { p in
                                 HStack(spacing: 10) {
@@ -451,7 +451,7 @@ struct CalendarBuildingSheet: View {
             .navigationTitle(building.type.displayName)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { Button("Zavřít") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) { Button(L(S.common.close)) { dismiss() } }
             }
         }
     }
@@ -486,7 +486,7 @@ struct CalendarDaySheet: View {
                         .padding(.horizontal)
 
                     if record.pillars.contains(where: { $0.isHabit && $0.isCompleted }) {
-                        Label("Návyk splněn", systemImage: "repeat")
+                        Label(L(S.calendar.habitDone), systemImage: "repeat")
                             .font(.system(.caption, design: .rounded).bold())
                             .foregroundStyle(.indigo)
                             .padding(.horizontal, 12)
@@ -496,7 +496,7 @@ struct CalendarDaySheet: View {
 
                     if !record.pillars.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("Pilíře dne")
+                            Text(L(S.calendar.dayPillars))
                                 .font(.system(.headline, design: .rounded))
                             ForEach(record.pillars.sorted(by: { $0.order < $1.order })) { p in
                                 HStack(spacing: 10) {
@@ -519,10 +519,10 @@ struct CalendarDaySheet: View {
             }
             .background(Theme.creamGradient.ignoresSafeArea())
             .navigationTitle(record.date.formatted(Date.FormatStyle(date: .long)
-                .locale(Locale(identifier: "cs"))))
+                .locale(Language.shared.current.locale)))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { Button("Zavřít") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) { Button(L(S.common.close)) { dismiss() } }
             }
         }
         .presentationDetents([.medium, .large])
@@ -540,20 +540,20 @@ struct CalendarDaySheet: View {
             VStack(spacing: 0) {
                 Text("\(doneCount)/\(totalCount)")
                     .font(.system(.title2, design: .rounded).bold())
-                Text("pilířů")
+                Text(L(S.calendar.pillarsLabel))
                     .font(.system(.caption2, design: .rounded))
                     .foregroundStyle(Theme.creamLabel)
             }
         }
         .frame(width: 110, height: 110)
-        .accessibilityLabel("Splněno \(doneCount) z \(totalCount) pilířů")
+        .accessibilityLabel(L(S.calendar.doneOf, doneCount, totalCount))
     }
 
     private var headline: String {
-        if totalCount == 0 { return "Tenhle den je bez pilířů." }
-        if ratio == 1 { return "Perfektní den, všechno splněno!" }
-        if ratio > 0 { return "Dobrá práce, část dne se povedla." }
-        return "Tenhle den zůstal bez splněných pilířů."
+        if totalCount == 0 { return L(S.calendar.noPillarsDay) }
+        if ratio == 1 { return L(S.calendar.perfectDay) }
+        if ratio > 0 { return L(S.calendar.partialDay) }
+        return L(S.calendar.emptyDay)
     }
 }
 
@@ -615,7 +615,7 @@ struct ChestRewardOverlay: View {
                 .opacity(shown ? 1 : 0)
 
                 Button(action: onDismiss) {
-                    Text("Super!")
+                    Text(L(S.calendar.nice))
                         .font(.system(.headline, design: .rounded))
                         .foregroundStyle(rarityColor)
                         .frame(maxWidth: .infinity)
@@ -640,7 +640,7 @@ struct ChestRewardOverlay: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(reward.rarity.title). Získáno \(reward.label).")
+        .accessibilityLabel(L(S.calendar.gotReward, reward.rarity.title, reward.label))
     }
 }
 
