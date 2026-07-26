@@ -6,7 +6,6 @@ struct SettingsView: View {
     @State private var morningHour = 8
     @State private var eveningHour = 20
     @State private var notificationsEnabled = false
-    @AppStorage("devModeEnabled")      private var devModeEnabled = false
     @AppStorage("mapFollowsFinger")    private var mapFollowsFinger = true
     @AppStorage("notifHabitsEnabled")  private var notifHabits = true
     @AppStorage("notifTasksEnabled")   private var notifTasks = true
@@ -89,21 +88,8 @@ struct SettingsView: View {
                 }
 
                 Section("Aplikace") {
-                    LabeledContent("Verze", value: "1.0 MVP")
-                    LabeledContent("Platforma", value: "iOS 26+")
+                    LabeledContent("Verze", value: "1.0")
                 }
-
-                #if DEBUG
-                Section {
-                    Toggle(isOn: $devModeEnabled) {
-                        Label("God mode", systemImage: "wand.and.stars")
-                    }
-                } header: {
-                    Text("Vývojář")
-                } footer: {
-                    Text("Zobrazí na mapě panel s neomezenými zdroji a okamžitým stavěním. Vypni, když chceš appku zažít jako běžný uživatel.")
-                }
-                #endif
 
                 Section {
                     Button(role: .destructive) {

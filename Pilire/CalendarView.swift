@@ -11,7 +11,6 @@ struct CalendarView: View {
     @State private var selectedBuilding: CalendarTappedBuilding?
     @State private var claimedReward: ChestReward?
     @State private var pulse: CGFloat = 1
-    @AppStorage("devModeEnabled") private var devMode = false
 
     private let cal: Calendar = {
         var c = Calendar.current
@@ -42,19 +41,6 @@ struct CalendarView: View {
             .background(Theme.creamGradient.ignoresSafeArea())
             .navigationTitle("Kalendář")
             .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                #if DEBUG
-                if devMode {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            simulateChest()
-                        } label: {
-                            Label("Zkušební truhla", systemImage: "gift")
-                        }
-                    }
-                }
-                #endif
-            }
         }
         .sheet(item: $selectedRecord) { rec in
             if let b = rec.buildings.first {
@@ -222,22 +208,6 @@ struct CalendarView: View {
             claimedReward = reward
         }
     }
-
-    #if DEBUG
-    /// God-mode only: roll and reveal a chest without consuming a real week,
-    /// so the reward flow can be previewed on demand.
-    private func simulateChest() {
-        let reward: ChestReward
-        if let settings = settingsList.first {
-            reward = settings.grantRandomChest()
-            ctx.saveChanges()
-        } else {
-            reward = UserSettings.rollChestReward()
-        }
-        Haptics.success()
-        withAnimation(.spring(duration: 0.4)) { claimedReward = reward }
-    }
-    #endif
 
     @ViewBuilder
     private var chestBanner: some View {

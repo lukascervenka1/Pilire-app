@@ -10,7 +10,6 @@ struct ContentView: View {
     @Query                                         private var settingsAll:  [UserSettings]
 
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
-    @AppStorage("devModeEnabled")    private var devModeEnabled    = false
 
     @State private var tab         = 0
     @State private var scene       = TownScene()
@@ -216,10 +215,6 @@ struct ContentView: View {
                 if let reward = loginToast { loginRewardToast(reward) }
                 if placingItem != nil || placingBuilding != nil { placementBanner }
                 Spacer()
-
-                #if DEBUG
-                if devModeEnabled { devPanel }
-                #endif
             }
         }
         .confirmationDialog(
@@ -760,42 +755,6 @@ struct ContentView: View {
     }
 
 
-    // MARK: - DEBUG dev panel
-
-    #if DEBUG
-    @State private var devTypeIdx = 0
-    private let devTypes = BuildingType.allCases
-
-    private var devPanel: some View {
-        HStack(spacing: 10) {
-            Button {
-                settings.coinBalance += 999
-                settings.add(.wood, 99); settings.add(.brick, 99); settings.add(.steel, 99)
-            } label: {
-                Label("+zdroje", systemImage: "wand.and.stars")
-                    .font(.caption.bold())
-            }
-            .padding(.horizontal, 12).padding(.vertical, 8)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Theme.rowRadius))
-
-            Button {
-                let type = devTypes[devTypeIdx % devTypes.count]
-                devTypeIdx += 1
-                let cell = scene.nextFreeCell(w: type.footprint.w, l: type.footprint.l)
-                let b = Building(type: type, gridX: cell.col, gridY: cell.row)
-                ctx.insert(b)
-                let node = scene.addBuilding(type: type, gridX: cell.col, gridY: cell.row, animated: true)
-                node.associatedBuilding = b
-            } label: {
-                Text("+\(devTypes[devTypeIdx % devTypes.count].displayName)")
-                    .font(.caption.bold())
-            }
-            .padding(.horizontal, 12).padding(.vertical, 8)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Theme.rowRadius))
-        }
-        .padding(.bottom, 6)
-    }
-    #endif
 }
 
 struct TappedBuilding: Identifiable {
