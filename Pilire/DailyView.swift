@@ -39,6 +39,8 @@ struct DailyView: View {
     /// Generous cap so you can jot down a lot of tasks without it becoming endless.
     private let maxPillars = 20
 
+    @State private var newTomorrowText = ""
+
     var body: some View {
         NavigationStack {
             if let day = today {
@@ -52,6 +54,11 @@ struct DailyView: View {
                         addSection(day)
                     }
                     habitsSection(day)
+                    // Once the day is closed there's nowhere left to put a
+                    // thought — so let it land on tomorrow instead.
+                    if day.isCompleted || !tomorrowPillars.isEmpty {
+                        tomorrowSection
+                    }
                     if !day.pillars.isEmpty {
                         closeDaySection(day)
                     }
@@ -469,6 +476,87 @@ struct DailyView: View {
     private func syncHabitReminders(_ day: DayRecord) {
         let done = Set(day.pillars.filter(\.isCompleted).map(\.text))
         NotificationManager.syncHabitReminders(habits: habits, completedTodayTexts: done)
+    }
+
+    // MARK: - Planning tomorrow
+
+    private var tomorrowDate: Date {
+        Calendar.current.date(byAdding: .day, value: 1,
+                              to: Calendar.current.startOfDay(for: .now))!
+    }
+
+    private var tomorrowRecord: DayRecord? {
+        records.first { Calendar.current.isDate($0.date, inSameDayAs: tomorrowDate) }
+    }
+
+    private var tomorrowPillars: [Pillar] {
+        (tomorrowRecord?.pillars ?? []).sorted { $0.order < $1.order }
+    }
+
+    @ViewBuilder
+    private var tomorrowSection: some View {
+        Section {
+            ForEach(tomorrowPillars) { p in
+                HStack(spacing: 12) {
+                    Image(systemName: "moon.stars")
+                        .foregroundStyle(.indigo.opacity(0.7))
+                    Text(p.text)
+                        .font(.system(.subheadline, design: .rounded))
+                    Spacer(minLength: 0)
+                }
+                .swipeActions(edge: .trailing) {
+                    Button(role: .destructive) { removeFromTomorrow(p.id) } label: {
+                        Label("Smazat", systemImage: "trash")
+                    }
+                }
+            }
+
+            if tomorrowPillars.count < maxPillars {
+                HStack {
+                    TextField("Přidat na zítra...", text: $newTomorrowText)
+                        .submitLabel(.done)
+                        .onSubmit { addToTomorrow() }
+                    if !newTomorrowText.isEmpty {
+                        Button { addToTomorrow() } label: {
+                            Image(systemName: "plus.circle.fill").foregroundStyle(.indigo)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Přidat pilíř na zítra")
+                    }
+                }
+            }
+        } header: {
+            Text("Plán na zítra")
+                .font(.system(.subheadline, design: .rounded).weight(.bold))
+                .foregroundStyle(Theme.creamLabel)
+                .textCase(nil)
+        } footer: {
+            Text("Ať ráno nemusíš přemýšlet, čím začít.")
+        }
+    }
+
+    private func addToTomorrow() {
+        let text = newTomorrowText.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return }
+        // Create tomorrow's record only once something is actually planned.
+        let record: DayRecord
+        if let existing = tomorrowRecord {
+            record = existing
+        } else {
+            record = DayRecord(date: tomorrowDate)
+            ctx.insert(record)
+        }
+        record.pillars.append(Pillar(text: text, order: record.pillars.count))
+        newTomorrowText = ""
+        ctx.saveChanges()
+        Haptics.tap()
+    }
+
+    private func removeFromTomorrow(_ id: UUID) {
+        guard let record = tomorrowRecord else { return }
+        record.pillars.removeAll { $0.id == id }
+        ctx.saveChanges()
+        Haptics.drop()
     }
 
     // MARK: - Carry over unfinished pillars

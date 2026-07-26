@@ -75,7 +75,11 @@ struct ChronicleView: View {
     // MARK: - Grouping & filtering
 
     private var filtered: [DayRecord] {
-        let nonEmpty = records.filter { !$0.pillars.isEmpty || !$0.buildings.isEmpty }
+        // Days planned ahead aren't history yet, so they stay out of the chronicle.
+        let today = cal.startOfDay(for: .now)
+        let nonEmpty = records.filter {
+            (!$0.pillars.isEmpty || !$0.buildings.isEmpty) && cal.startOfDay(for: $0.date) <= today
+        }
         guard !search.isEmpty else { return nonEmpty }
         return nonEmpty.filter { rec in
             rec.pillars.contains { $0.text.localizedStandardContains(search) }

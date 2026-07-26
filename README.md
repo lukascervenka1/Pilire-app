@@ -90,6 +90,8 @@ project.
 Everything stays on your device. No account, no sign-in, no analytics, no
 network calls. Calendar and Reminders access is optional and only ever writes.
 
+Full policy: **[PRIVACY.md](PRIVACY.md)**
+
 ---
 
 ## Credits
