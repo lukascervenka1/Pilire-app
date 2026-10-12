@@ -324,10 +324,21 @@ final class AnimalNode: SCNNode {
         row += delta
     }
 
+    /// SceneKit calls action completions on its render thread, but everything
+    /// an animal decides reads the town — buildings, decorations, kennels,
+    /// bowls — which the main thread edits whenever you build, move or tidy
+    /// something away. Two threads on one array crashed the game, so every
+    /// completion that leads back into thinking hops to the main thread first.
+    private func after(_ action: SCNAction, _ then: @escaping @MainActor () -> Void) {
+        runAction(action) {
+            Task { @MainActor in then() }
+        }
+    }
+
     /// Kick off the endless think-act loop after a small random delay so a herd
     /// doesn't move in lockstep.
     func startLiving() {
-        runAction(.wait(duration: Double.random(in: 0.4...3.0))) { [weak self] in
+        after(.wait(duration: Double.random(in: 0.4...3.0))) { [weak self] in
             self?.behave()
         }
     }
@@ -372,7 +383,7 @@ final class AnimalNode: SCNNode {
     /// `behave()` straight back, which would recurse until the thread locked up.
     private func abandonTarget() {
         targetCooldownUntil = Date().addingTimeInterval(20)
-        runAction(.wait(duration: 0.5)) { [weak self] in self?.behave() }
+        after(.wait(duration: 0.5)) { [weak self] in self?.behave() }
     }
 
     // MARK: Going somewhere on purpose
@@ -409,18 +420,18 @@ final class AnimalNode: SCNNode {
     private func eatFromBowl(at world: SCNVector3) {
         let approach = SCNAction.move(to: SCNVector3(world.x, 0, world.z + 0.35), duration: 0.5)
         approach.timingMode = .easeInEaseOut
-        runAction(.sequence([
+        after(.sequence([
             .rotateTo(x: 0, y: CGFloat(atan2(world.x - position.x, world.z - position.z)),
                       z: 0, duration: 0.25, usesShortestUnitArc: true),
             approach,
         ])) { [weak self] in
             guard let self else { return }
             self.play(["eat", "eating", "idle"])
-            self.runAction(.wait(duration: 4.0)) { [weak self] in
+            self.after(.wait(duration: 4.0)) { [weak self] in
                 guard let self else { return }
                 self.onAteFromBowl?(self)
                 self.play(["idle", "rest"])
-                self.runAction(.wait(duration: 0.6)) { [weak self] in self?.behave() }
+                self.after(.wait(duration: 0.6)) { [weak self] in self?.behave() }
             }
         }
     }
@@ -476,7 +487,7 @@ final class AnimalNode: SCNNode {
     private func scheduleWakeCheck() {
         let delay = commandedNap ? Double.random(in: 60...90) : Double.random(in: 15...30)
         commandedNap = false
-        runAction(.wait(duration: delay)) { [weak self] in
+        after(.wait(duration: delay)) { [weak self] in
             guard let self else { return }
             if self.isNight(), !self.kind.isNocturnal, !self.forcedAwake {
                 self.scheduleWakeCheck()   // still dark — stay put
@@ -538,8 +549,8 @@ final class AnimalNode: SCNNode {
         place(col: col, row: row)
         let land = SCNAction.move(to: worldFor(col, row), duration: 0.2)
         land.timingMode = .easeOut
-        runAction(land) { [weak self] in
-            self?.runAction(.wait(duration: 0.3)) { [weak self] in self?.behave() }
+        after(land) { [weak self] in
+            self?.after(.wait(duration: 0.3)) { [weak self] in self?.behave() }
         }
         Haptics.drop()
     }
@@ -561,10 +572,11 @@ final class AnimalNode: SCNNode {
         poseNode.runAction(up)
         Haptics.tap()
         play(["idle", "rest"])
-        runAction(.wait(duration: 0.5)) { [weak self] in self?.behave() }
+        after(.wait(duration: 0.5)) { [weak self] in self?.behave() }
         // Let it doze off again after a minute of being awake.
-        runAction(.sequence([.wait(duration: 60), .run { [weak self] _ in self?.forcedAwake = false }]),
-                  forKey: "wakeWindow")
+        runAction(.sequence([.wait(duration: 60), .run { [weak self] _ in
+            Task { @MainActor [weak self] in self?.forcedAwake = false }
+        }]), forKey: "wakeWindow")
     }
 
     private var effectiveMoveChance: Double {
@@ -602,7 +614,7 @@ final class AnimalNode: SCNNode {
         lastDir = start
         let turn = SCNAction.rotateTo(x: 0, y: CGFloat(yaw(start)), z: 0,
                                       duration: 0.22, usesShortestUnitArc: true)
-        runAction(turn) { [weak self] in self?.advance(dir: start, remaining: budget, sprint: sprint) }
+        after(turn) { [weak self] in self?.advance(dir: start, remaining: budget, sprint: sprint) }
     }
 
     private func advance(dir: (dx: Int, dy: Int), remaining: Int, sprint: Bool) {
@@ -628,7 +640,7 @@ final class AnimalNode: SCNNode {
     }
 
     private func stepTile(_ dir: (dx: Int, dy: Int), sprint: Bool, turned: Bool,
-                          done: @escaping () -> Void) {
+                          done: @escaping @MainActor () -> Void) {
         let nc = col + dir.dx, nr = row + dir.dy
         let water = isWater(nc, nr)
         var dur = water ? kind.swimSecondsPerTile : kind.walkSecondsPerTile
@@ -650,7 +662,7 @@ final class AnimalNode: SCNNode {
         // The rig plays its own walk cycle, so no procedural bob is needed.
         lastDir = dir
         col = nc; row = nr
-        runAction(.sequence(seq), completionHandler: done)
+        after(.sequence(seq), done)
     }
 
     /// y-rotation so the model's +Z (its nose) points along the move direction.
@@ -674,8 +686,8 @@ final class AnimalNode: SCNNode {
     }
 
     private func finishIdle(after dur: Double) {
-        runAction(.wait(duration: dur)) { [weak self] in
-            self?.runAction(.wait(duration: 0.3)) { [weak self] in self?.behave() }
+        after(.wait(duration: dur)) { [weak self] in
+            self?.after(.wait(duration: 0.3)) { [weak self] in self?.behave() }
         }
     }
 }

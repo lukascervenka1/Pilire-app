@@ -5,6 +5,7 @@ enum CatalogStyle {
     static let ink = Color(red: 0.28, green: 0.32, blue: 0.27)
     static let coin = Color(red: 0.65, green: 0.43, blue: 0.10)
     static let shortage = Color(red: 0.66, green: 0.26, blue: 0.18)
+    static let shortageAmount = Color(red: 0.76, green: 0.18, blue: 0.15)
     static let eventTop = Color(red: 0.23, green: 0.22, blue: 0.32)
     static let eventBottom = Color(red: 0.34, green: 0.27, blue: 0.36)
     static let eventAccent = Color(red: 1.0, green: 0.77, blue: 0.43)
@@ -124,8 +125,11 @@ struct CatalogPrice: View {
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: symbol).foregroundStyle(color).accessibilityHidden(true)
-            Text("\(amount)").monospacedDigit().fontWeight(.semibold)
-                .foregroundStyle(enough ? CatalogStyle.ink : CatalogStyle.shortage)
+            Text("\(amount)").monospacedDigit().fontWeight(enough ? .semibold : .bold)
+                .foregroundStyle(enough ? CatalogStyle.ink : CatalogStyle.shortageAmount)
+                .padding(.horizontal, 4).padding(.vertical, 2)
+                .background(enough ? Color.clear : CatalogStyle.shortageAmount.opacity(0.10),
+                            in: RoundedRectangle(cornerRadius: 5))
         }
         .font(.system(.caption, design: .rounded)).fixedSize()
         .accessibilityElement(children: .ignore).accessibilityLabel("\(label): \(amount)")

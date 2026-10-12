@@ -27,6 +27,10 @@ struct ContentView: View {
     @State private var placingStoredBuilding: Building?
     @State private var placingStoredDecoration: PlacedDecoration?
     @State private var storedToast = false
+    /// The tab bar sits on the bottom safe area, so it rides up with the
+    /// keyboard and lands right on top of the field you're typing into. It
+    /// steps aside while the keyboard is out.
+    @State private var keyboardVisible = false
     @State private var payout: PayoutPresentation?
     @State private var loginToast: Int?
     @State private var showOnboarding = false
@@ -94,13 +98,22 @@ struct ContentView: View {
                 .tag(3)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            GameTabBar(selection: $tab, pulseBuild: tutorial.current == .build) {
-                tab = 0
-                showBuild = true
+            if !keyboardVisible {
+                GameTabBar(selection: $tab, pulseBuild: tutorial.current == .build) {
+                    tab = 0
+                    showBuild = true
+                }
+                .transition(.opacity)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            withAnimation(.easeOut(duration: 0.2)) { keyboardVisible = true }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            withAnimation(.easeOut(duration: 0.2)) { keyboardVisible = false }
+        }
         .overlay(alignment: .bottom) {
-            if let step = tutorial.current {
+            if let step = tutorial.current, !keyboardVisible {
                 TutorialBanner(
                     step: step,
                     currentTab: tab,

@@ -1341,9 +1341,14 @@ final class TownScene: NSObject {
             pop.timingMode = .easeOut
             node.runAction(pop)
             moveCamera(to: node.position)
+            // Action blocks run on SceneKit's render thread; adding the confetti
+            // from there raced the main thread building the town.
+            let spot = node.position
             scnScene.rootNode.runAction(.sequence([
                 .wait(duration: 0.5),
-                .run { [weak self] _ in self?.celebrate(at: node.position) }
+                .run { [weak self] _ in
+                    DispatchQueue.main.async { self?.celebrate(at: spot) }
+                }
             ]))
         }
         return node
