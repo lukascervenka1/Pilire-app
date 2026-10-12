@@ -22,6 +22,11 @@ final class UserSettings {
     // Weekly chest — keys ("yyyy-MM-dd" of week start) of already claimed weeks
     var claimedWeekKeys: [String] = []
 
+    // Badges the player has already been shown, by stable id. Which badges are
+    // *earned* is derived from the real data every time, so this list only
+    // decides what still deserves a celebration.
+    var seenAchievements: [String] = []
+
     // Legacy (kept for store compatibility; UI no longer shows it)
     var currentStreak: Int
     var lastCompletedDate: Date?
@@ -211,10 +216,10 @@ struct ChestReward: Identifiable {
     /// Human-readable reward line, e.g. "60 mincí + 3 cihly".
     var label: String {
         var parts: [String] = []
-        if coins > 0 { parts.append("\(coins) \(L(S.common.coins).lowercased())") }
-        if wood  > 0 { parts.append("\(wood) \(Material.wood.displayName.lowercased())") }
-        if brick > 0 { parts.append("\(brick) \(Material.brick.displayName.lowercased())") }
-        if steel > 0 { parts.append("\(steel) \(Material.steel.displayName.lowercased())") }
+        if coins > 0 { parts.append(S.coinsCount(coins)) }
+        if wood  > 0 { parts.append(Material.wood.amount(wood)) }
+        if brick > 0 { parts.append(Material.brick.amount(brick)) }
+        if steel > 0 { parts.append(Material.steel.amount(steel)) }
         return parts.joined(separator: " + ")
     }
 }

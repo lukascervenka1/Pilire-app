@@ -35,6 +35,9 @@ struct DailyView: View {
 
     var settings: UserSettings
     var onDayCompleted: ((DayRecord) -> Void)?
+    /// Ticking a pillar can earn a badge, and the celebration lives at the tab
+    /// container so it can cover any screen.
+    var onPillarCompleted: (() -> Void)?
 
     /// Generous cap so you can jot down a lot of tasks without it becoming endless.
     private let maxPillars = 20
@@ -748,6 +751,7 @@ struct DailyView: View {
             day.pillars[i].woodAwarded = earned
             showEarnedToast(earned)
             Tutorial.shared.advance(from: .completeTask)
+            onPillarCompleted?()
         } else {
             // Un-completing: take the exact reward back (no free-wood loop)
             let refund = day.pillars[i].woodAwarded

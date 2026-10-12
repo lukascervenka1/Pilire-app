@@ -5,46 +5,60 @@ import SwiftData
 
 struct ChronicleView: View {
     @Query(sort: \DayRecord.date, order: .reverse) private var records: [DayRecord]
+    @Query(sort: \Building.builtDate)              private var buildings: [Building]
+    @Query(sort: \PlacedDecoration.placedDate)     private var decorations: [PlacedDecoration]
+    @Query(sort: \OwnedAnimal.boughtDate)          private var animals: [OwnedAnimal]
+    @Query(sort: \Habit.createdDate)               private var habits: [Habit]
+    @Query                                         private var settingsList: [UserSettings]
+
     @State private var search = ""
     @State private var selectedRecord: DayRecord?
+    @State private var showAchievements = false
 
     private let cal = Calendar.current
 
     var body: some View {
         NavigationStack {
-            Group {
-                if grouped.isEmpty {
-                    ContentUnavailableView(
-                        search.isEmpty ? L(S.chronicle.emptyTitle) : L(S.chronicle.noResults),
-                        systemImage: search.isEmpty ? "book.closed" : "magnifyingglass",
-                        description: Text(search.isEmpty
-                            ? L(S.chronicle.emptyBody)
-                            : L(S.chronicle.tryAnother))
-                    )
-                } else {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 22, pinnedViews: [.sectionHeaders]) {
-                            ForEach(grouped, id: \.month) { group in
-                                Section {
-                                    VStack(spacing: 10) {
-                                        ForEach(group.days, id: \.persistentModelID) { rec in
-                                            Button { selectedRecord = rec } label: {
-                                                ChronicleCard(record: rec)
-                                            }
-                                            .buttonStyle(.plain)
-                                        }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 22, pinnedViews: [.sectionHeaders]) {
+                    // Badges sit above the history: the Kronika should open on
+                    // how far you've come, not on a wall of dates. Hidden while
+                    // searching, when the only thing that matters is the hits.
+                    if search.isEmpty {
+                        AchievementsCard(progress: achievements) { showAchievements = true }
+                            .padding(.top, 4)
+                    }
+
+                    if grouped.isEmpty {
+                        ContentUnavailableView(
+                            search.isEmpty ? L(S.chronicle.emptyTitle) : L(S.chronicle.noResults),
+                            systemImage: search.isEmpty ? "book.closed" : "magnifyingglass",
+                            description: Text(search.isEmpty
+                                ? L(S.chronicle.emptyBody)
+                                : L(S.chronicle.tryAnother))
+                        )
+                        .padding(.top, 24)
+                    }
+
+                    ForEach(grouped, id: \.month) { group in
+                        Section {
+                            VStack(spacing: 10) {
+                                ForEach(group.days, id: \.persistentModelID) { rec in
+                                    Button { selectedRecord = rec } label: {
+                                        ChronicleCard(record: rec)
                                     }
-                                } header: {
-                                    monthHeader(group.month, count: group.days.count)
+                                    .buttonStyle(.plain)
                                 }
                             }
+                        } header: {
+                            monthHeader(group.month, count: group.days.count)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 24)
                     }
-                    .background(Theme.creamGradient.ignoresSafeArea())
                 }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 24)
             }
+            .background(Theme.creamGradient.ignoresSafeArea())
             .navigationTitle(L(S.tabs.chronicle))
             .searchable(text: $search, prompt: L(S.chronicle.searchPrompt))
         }
@@ -55,6 +69,18 @@ struct ChronicleView: View {
                 CalendarDaySheet(record: rec)
             }
         }
+        .sheet(isPresented: $showAchievements) {
+            AchievementsView(progress: achievements)
+        }
+    }
+
+    private var achievements: [AchievementProgress] {
+        Achievements.progress(
+            Achievements.stats(records: records, buildings: buildings,
+                               decorations: decorations, animals: animals,
+                               habits: habits, settings: settingsList.first),
+            seen: Set(settingsList.first?.seenAchievements ?? [])
+        )
     }
 
     private func monthHeader(_ d: Date, count: Int) -> some View {

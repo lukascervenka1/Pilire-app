@@ -150,13 +150,17 @@ struct SettingsView: View {
         try? ctx.delete(model: OwnedAnimal.self)
         try? ctx.delete(model: Habit.self)
         try? ctx.delete(model: UserSettings.self)
+        // ContentView stays alive behind this sheet. Leave it a valid singleton
+        // immediately instead of forcing a restart before rewards work again.
+        ctx.insert(UserSettings())
         ctx.saveChanges()
 
         UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
 
         let d = UserDefaults.standard
         for key in ["hasSeenOnboarding", "tutorialStep", "tutorialDone",
-                    "devModeEnabled", "notifHabitsEnabled", "notifTasksEnabled"] {
+                    "devModeEnabled", "notifHabitsEnabled", "notifTasksEnabled",
+                    "achievementsSeeded", "cachedMapSize"] {
             d.removeObject(forKey: key)
         }
 

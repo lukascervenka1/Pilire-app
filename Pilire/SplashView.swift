@@ -40,7 +40,10 @@ struct RootView: View {
         // system appearance.
         .preferredColorScheme(.light)
         .onAppear {
-            NotificationManager.requestPermission()
+            // Only re-plan what's already permitted. Asking for notifications
+            // here meant a brand-new player got the system prompt on top of the
+            // language picker, in the phone's language, before they had read a
+            // word about the app — so the ask moved to the end of onboarding.
             NotificationManager.scheduleDailyReminders()
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) {
                 withAnimation(.easeOut(duration: 0.45)) { showSplash = false }

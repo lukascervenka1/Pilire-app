@@ -5,10 +5,9 @@ struct BuildingDetailSheet: View {
     let node: BuildingNode
     let dayRecord: DayRecord?
     var onRotate: (() -> Void)? = nil
-    var onDemolish: (() -> Void)? = nil
+    var onStore: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var shown = false
-    @State private var confirmDemolish = false
 
     var body: some View {
         NavigationStack {
@@ -54,30 +53,26 @@ struct BuildingDetailSheet: View {
                             .buttonStyle(.plain)
                         }
 
-                        if onDemolish != nil {
+                        // Put away rather than destroyed: it goes to the inventory and
+                        // can come back any time, so no confirmation is needed.
+                        if let onStore {
                             Button {
-                                confirmDemolish = true
+                                dismiss()
+                                onStore()
                             } label: {
-                                Label(L(S.map.demolish), systemImage: "trash")
+                                Label(L(S.town.storeAway), systemImage: "backpack.fill")
                                     .font(.subheadline.bold())
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 12)
-                                    .background(Color.red.opacity(0.10), in: RoundedRectangle(cornerRadius: Theme.rowRadius))
-                                    .foregroundStyle(.red)
+                                    .background(accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: Theme.rowRadius))
+                                    .foregroundStyle(accentColor)
                             }
                             .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, 4)
-                    .confirmationDialog(L(S.map.demolishQuestion), isPresented: $confirmDemolish, titleVisibility: .visible) {
-                        Button(L(S.map.demolish), role: .destructive) {
-                            onDemolish?()
-                            dismiss()
-                        }
-                        Button(L(S.common.cancel), role: .cancel) {}
-                    } message: {
-                        Text(L(S.map.refund, refundLabel))
-                    }
 
                     Text(L(S.map.moveTip))
                         .font(.caption).foregroundStyle(.tertiary)
@@ -179,14 +174,5 @@ struct BuildingDetailSheet: View {
     private var accentColor: Color {
         let c = node.type.skColorRGB
         return Color(red: c.r, green: c.g, blue: c.b)
-    }
-
-    private var refundLabel: String {
-        let c = node.type.cost
-        var parts: [String] = []
-        if c.wood / 2 > 0  { parts.append("\(c.wood / 2) \(Material.wood.displayName.lowercased())") }
-        if c.brick / 2 > 0 { parts.append("\(c.brick / 2) \(Material.brick.displayName.lowercased())") }
-        if c.steel / 2 > 0 { parts.append("\(c.steel / 2) \(Material.steel.displayName.lowercased())") }
-        return parts.isEmpty ? L(S.map.nothing) : parts.joined(separator: ", ")
     }
 }

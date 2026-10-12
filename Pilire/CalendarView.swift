@@ -271,9 +271,22 @@ struct CalendarView: View {
     }
 
     private func bannerSubtitle(ready: Int) -> String {
-        if ready > 1 { return L(S.calendar.chestHintMany) }
-        if ready == 1 { return L(S.calendar.chestHintOne) }
-        return L(S.calendar.chestHintProgress, currentWeekProgress)
+        guard ready > 0 else { return L(S.calendar.chestHintProgress, currentWeekProgress) }
+        // Say which week earned it. A chest for a week you finished a fortnight
+        // ago is indistinguishable from a bug otherwise.
+        guard let first = claimableWeeks.first else { return L(S.calendar.chestHintOne) }
+        let range = weekRangeLabel(from: first.start)
+        return ready > 1 ? L(S.calendar.chestForWeekMany, range)
+                         : L(S.calendar.chestForWeek, range)
+    }
+
+    /// "20.–26. 7." — compact, and it follows the chosen language.
+    private func weekRangeLabel(from start: Date) -> String {
+        let end = cal.date(byAdding: .day, value: 6, to: start) ?? start
+        let locale = Language.shared.current.locale
+        let day = Date.FormatStyle.dateTime.day().locale(locale)
+        let full = Date.FormatStyle.dateTime.day().month(.defaultDigits).locale(locale)
+        return "\(start.formatted(day))–\(end.formatted(full))"
     }
 
     // MARK: - Legend

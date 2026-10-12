@@ -10,6 +10,16 @@ enum S {
 
     // MARK: Common
 
+    /// "1 mince", "3 mince", "300 mincí".
+    @MainActor
+    static func coinsCount(_ n: Int) -> String {
+        switch Language.shared.current {
+        case .cs: n == 1 ? "1 mince" : (n <= 4 ? "\(n) mince" : "\(n) mincí")
+        case .sk: n == 1 ? "1 minca" : (n <= 4 ? "\(n) mince" : "\(n) mincí")
+        case .en: n == 1 ? "1 coin"  : "\(n) coins"
+        }
+    }
+
     enum common {
         static let done = T(cs: "Hotovo", sk: "Hotovo", en: "Done")
         static let cancel = T(cs: "Zrušit", sk: "Zrušiť", en: "Cancel")
@@ -146,6 +156,90 @@ enum S {
         }
     }
 
+    // MARK: Inventář
+
+    enum inventory {
+        static let title = T(cs: "Inventář", sk: "Inventár", en: "Inventory")
+        static let freeToPlace = T(
+            cs: "Co tu máš, postavíš zdarma. Uklidit sem jde cokoli z mapy, stačí na to ťuknout.",
+            sk: "Čo tu máš, postavíš zadarmo. Uložiť sem ide čokoľvek z mapy, stačí naň ťuknúť.",
+            en: "Anything here goes back on the map for free. Tap something on the map to put it away.")
+        static let emptyTitle = T(cs: "Inventář je prázdný", sk: "Inventár je prázdny",
+                                  en: "Your inventory is empty")
+        static let emptyBody = T(
+            cs: "Ťukni na mapě na budovu nebo dekoraci a ulož ji sem. Postavíš ji pak jinde, nebo si třeba vánoční věci schováš do příštího roku.",
+            sk: "Ťukni na mape na budovu alebo dekoráciu a ulož ju sem. Postavíš ju potom inde, alebo si napríklad vianočné veci schováš do budúceho roka.",
+            en: "Tap a building or decoration on the map to put it away here. Place it somewhere else later, or keep the Christmas things for next year.")
+        static let emptyFilter = T(cs: "V téhle části zatím nic nemáš.",
+                                   sk: "V tejto časti zatiaľ nič nemáš.",
+                                   en: "Nothing here yet.")
+        static let placeOnMap = T(cs: "Postavit na mapu", sk: "Postaviť na mapu", en: "Place on the map")
+        static let sellFor = T(cs: "Prodat (+%@)", sk: "Predať (+%@)", en: "Sell (+%@)")
+        static let sellNote = T(cs: "Při prodeji se ti vrátí polovina ceny. Prodej nejde vzít zpět.",
+                                sk: "Pri predaji sa ti vráti polovica ceny. Predaj sa nedá vziať späť.",
+                                en: "Selling gives you half the price back. It can't be undone.")
+        static let filterAll = T(cs: "Vše", sk: "Všetko", en: "All")
+        static let filterBuildings = T(cs: "Budovy", sk: "Budovy", en: "Buildings")
+        static let filterDecorations = T(cs: "Dekorace", sk: "Dekorácie", en: "Decorations")
+        static let filterAnimals = T(cs: "Zvířata", sk: "Zvieratá", en: "Animals")
+        static let filterSeasonal = T(cs: "Sezónní", sk: "Sezónne", en: "Seasonal")
+        static let itemLabel = T(cs: "%@, %d kusů", sk: "%@, %d kusov", en: "%@, %d of them")
+    }
+
+    // MARK: Postav něco
+
+    enum build {
+        static let itemCount = T(cs: "Počet položek: %d", sk: "Počet položiek: %d", en: "Items: %d")
+        static let insufficient = T(cs: "Nedostatek", sk: "Nedostatok", en: "Not enough")
+        static let title = T(cs: "Stavět a zdobit", sk: "Stavať a zdobiť", en: "Build & decorate")
+        static let catalogueTitle = T(cs: "Pro tvoje město", sk: "Pre tvoje mesto", en: "For your town")
+        static let categories = T(cs: "Všechny kategorie", sk: "Všetky kategórie", en: "All categories")
+        static let collection = T(cs: "Sezónní kolekce", sk: "Sezónna kolekcia", en: "Seasonal collection")
+        static let explore = T(cs: "Prohlédnout kolekci", sk: "Prezrieť kolekciu", en: "Explore collection")
+        static let until = T(cs: "V nabídce do %@", sk: "V ponuke do %@", en: "Available until %@")
+        static let build = T(cs: "Postavit", sk: "Postaviť", en: "Build")
+        static let place = T(cs: "Umístit", sk: "Umiestniť", en: "Place")
+        static let shortageHint = T(cs: "Zobrazí, co ještě chybí.", sk: "Zobrazí, čo ešte chýba.", en: "Shows what you still need.")
+        static let shortageFor = T(cs: "Pro „%@“ ještě potřebuješ:", sk: "Pre „%@“ ešte potrebuješ:", en: "For “%@”, you still need:")
+        static let missingAmount = T(cs: "Chybí %d", sk: "Chýba %d", en: "Need %d more")
+        static let availableOf = T(cs: "Máš %d z %d", sk: "Máš %d z %d", en: "You have %d of %d")
+        static let shortageReady = T(cs: "Už máš vše potřebné. Můžeš se vrátit k výběru.", sk: "Už máš všetko potrebné. Môžeš sa vrátiť k výberu.", en: "You now have everything you need. You can return to the catalogue.")
+        static let needMaterials = T(cs: "Chybí materiál", sk: "Chýba materiál", en: "Need materials")
+        static let needCoins = T(cs: "Chybí mince", sk: "Chýbajú mince", en: "Need coins")
+
+        static let seasonOn = T(cs: "%@ do %@", sk: "%@ do %@", en: "%@ until %@")
+        static let seasonKeep = T(cs: "Co si koupíš, zůstane ti napořád.",
+                                  sk: "Čo si kúpiš, zostane ti navždy.",
+                                  en: "Whatever you buy is yours for good.")
+        static let seasonNone = T(cs: "Teď neprobíhá žádná sezónní akce.",
+                                  sk: "Teraz neprebieha žiadna sezónna akcia.",
+                                  en: "No seasonal event on right now.")
+        static let seasonNext = T(cs: "Další bude %@, od %@.", sk: "Ďalšia bude %@, od %@.",
+                                  en: "Next up: %@, from %@.")
+        static let expandRow = T(cs: "%@ za %@", sk: "%@ za %@", en: "%@ for %@")
+    }
+
+    // MARK: Odznaky
+
+    enum achievements {
+        static let title = T(cs: "Odznaky", sk: "Odznaky", en: "Badges")
+        static let subtitle = T(
+            cs: "Sbírají se samy, jak hraješ. Nic se za ně neztrácí, jen přibývá.",
+            sk: "Zbierajú sa samy, ako hráš. Nič sa za ne nestráca, len pribúda.",
+            en: "They collect themselves as you play. Nothing is ever taken away.")
+        static let summary = T(cs: "Máš %d z %d", sk: "Máš %d z %d", en: "%d of %d earned")
+        static let earned = T(cs: "Získáno", sk: "Získané", en: "Earned")
+        static let unlocked = T(cs: "Nový odznak!", sk: "Nový odznak!", en: "New badge!")
+        static let unlockedLabel = T(cs: "Získal jsi odznak %@", sk: "Získal si odznak %@",
+                                     en: "You earned the badge %@")
+        /// Earned badges showed only "Earned", so there was no way to see what
+        /// actually triggered one — which reads as arbitrary.
+        static let reached = T(cs: "Dosaženo: %d", sk: "Dosiahnuté: %d", en: "Reached: %d")
+        static let cardLabel = T(cs: "Odznaky, %d z %d získáno",
+                                 sk: "Odznaky, %d z %d získaných",
+                                 en: "Badges, %d of %d earned")
+    }
+
     // MARK: Onboarding and tutorial
 
     enum onboarding {
@@ -265,13 +359,18 @@ enum S {
         static let chestReadyMany = T(cs: "Máš %d truhly!", sk: "Máš %d truhlice!",
                                       en: "You have %d chests!")
         static let open = T(cs: "Otevřít", sk: "Otvoriť", en: "Open")
-        static let chestHintMany = T(
-            cs: "Klepni a otevři je jednu po druhé. Co v nich je, zjistíš až uvnitř.",
-            sk: "Klepni a otvor ich jednu po druhej. Čo v nich je, zistíš až vnútri.",
-            en: "Tap to open them one by one. You'll find out what's inside when you do.")
         static let chestHintOne = T(cs: "Klepni a otevři svou týdenní odměnu.",
                                     sk: "Klepni a otvor svoju týždennú odmenu.",
                                     en: "Tap to open your weekly reward.")
+        /// Naming the week it's for: without it a chest just appears out of
+        /// nowhere, and even weeks you finished a while ago look like a glitch.
+        static let chestForWeek = T(cs: "Za týden %@. Klepni a otevři.",
+                                    sk: "Za týždeň %@. Klepni a otvor.",
+                                    en: "For the week of %@. Tap to open.")
+        static let chestForWeekMany = T(
+            cs: "Nejbližší je za týden %@. Otevírej je jednu po druhé.",
+            sk: "Najbližšia je za týždeň %@. Otváraj ich jednu po druhej.",
+            en: "The first is for the week of %@. Open them one by one.")
         static let chestHintProgress = T(
             cs: "Splň aspoň jeden pilíř každý den v týdnu. Tento týden máš %d/7.",
             sk: "Splň aspoň jeden pilier každý deň v týždni. Tento týždeň máš %d/7.",
@@ -314,13 +413,6 @@ enum S {
         static let underConstruction = T(cs: "Rozestavěná", sk: "Rozostavaná",
                                          en: "Under construction")
         static let rotate = T(cs: "Otočit", sk: "Otočiť", en: "Rotate")
-        static let demolish = T(cs: "Zbourat", sk: "Zbúrať", en: "Demolish")
-        static let demolishQuestion = T(cs: "Zbourat budovu?", sk: "Zbúrať budovu?",
-                                        en: "Demolish this building?")
-        static let refund = T(cs: "Vrátí se ti polovina materiálu (%@).",
-                              sk: "Vráti sa ti polovica materiálu (%@).",
-                              en: "You'll get half the materials back (%@).")
-        static let nothing = T(cs: "nic", sk: "nič", en: "nothing")
         static let moveTip = T(cs: "Tip: podrž prst na budově a táhni pro přesun. Dvojklik ji otočí.",
                                sk: "Tip: podrž prst na budove a ťahaj pre presun. Dvojklik ju otočí.",
                                en: "Tip: hold a building and drag to move it. Double tap turns it.")
@@ -385,9 +477,15 @@ enum S {
     // MARK: Map interactions
 
     enum town {
-        static let removeQuestion = T(cs: "Odstranit %@?", sk: "Odstrániť %@?", en: "Remove %@?")
-        static let removeRefund = T(cs: "Odstranit (+%d mincí zpět)", sk: "Odstrániť (+%d mincí späť)",
-                                    en: "Remove (+%d coins back)")
+        static let storeAway = T(cs: "Uklidit do inventáře", sk: "Uložiť do inventára",
+                                 en: "Put in inventory")
+        static let storedToast = T(cs: "Uklizeno do inventáře", sk: "Uložené do inventára",
+                                   en: "Put away in your inventory")
+        static let fromInventory = T(cs: "z inventáře", sk: "z inventára", en: "from inventory")
+        static let dragPathStored = T(
+            cs: "Táhni prstem po mapě. %d dílů cesty máš v inventáři zdarma.",
+            sk: "Ťahaj prstom po mape. %d dielov cesty máš v inventári zadarmo.",
+            en: "Drag across the map. %d path tiles from your inventory go first, free.")
         static let dragToMove = T(cs: "Přesunout ji můžeš i podržením a tažením.",
                                   sk: "Presunúť ju môžeš aj podržaním a ťahaním.",
                                   en: "You can also hold and drag it somewhere else.")
@@ -415,8 +513,6 @@ enum S {
                                 en: "Fill the bowl (%d coins)")
         static let nameKennel = T(cs: "Napsat jméno na boudu", sk: "Napísať meno na búdu",
                                   en: "Put a name on it")
-        static let removeKennel = T(cs: "Odstranit boudu", sk: "Odstrániť búdu",
-                                    en: "Remove the doghouse")
         static let bowlFullNote = T(cs: "Miska je plná. Za chvíli si pro ni pes přijde.",
                                     sk: "Miska je plná. O chvíľu si po ňu pes príde.",
                                     en: "The bowl is full. Your dog will come for it soon.")
@@ -588,8 +684,7 @@ enum S {
     enum misc {
         static let paused = T(cs: "· pozastaveno", sk: "· pozastavené", en: "· paused")
         static let todayMark = T(cs: "· dnes", sk: "· dnes", en: "· today")
-        static let buildBuilding = T(cs: "Postavit budovu", sk: "Postaviť budovu",
-                                     en: "Put up a building")
+        static let buildBuilding = T(cs: "Postav něco", sk: "Postav niečo", en: "Build something")
         static let coinsLabel = T(cs: "Mince: %d", sk: "Mince: %d", en: "Coins: %d")
         static let momentumLabel = T(cs: "Momentum: %d", sk: "Momentum: %d", en: "Momentum: %d")
         static let integrations = T(cs: "Integrace", sk: "Integrácie", en: "Integrations")

@@ -9,7 +9,14 @@ struct PillarProgressView: View {
     let done: Int       // completed tasks (placed blocks)
 
     private var slots: Int { min(max(total, 1), 5) }
-    private var filled: Int { min(done, slots) }
+    private var filled: Int {
+        guard total > 5 else { return min(done, slots) }
+        guard done > 0 else { return 0 }
+        if done >= total { return slots }
+        // Five blocks represent proportional milestones when a long day has
+        // more than five tasks. Keep the last block for true completion.
+        return min(slots - 1, max(1, Int(Double(done) / Double(total) * Double(slots))))
+    }
     private var isComplete: Bool { total > 0 && done >= total }
 
     // Element sizes (width, faceHeight); depth is always width/2

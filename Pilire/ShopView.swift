@@ -12,6 +12,11 @@ enum DecorationPreview {
 
     static func image(for item: DecorationItem) -> UIImage {
         if let img = cache[item] { return img }
+        let key = "decoration-\(item.rawValue)"
+        if let saved = PreviewDiskCache.load(key) {
+            cache[item] = saved
+            return saved
+        }
 
         let scene = SCNScene()
         scene.background.contents = UIColor.clear
@@ -59,6 +64,7 @@ enum DecorationPreview {
                                     with: CGSize(width: 240, height: 240),
                                     antialiasingMode: .multisampling4X)
         cache[item] = img
+        PreviewDiskCache.save(img, key)
         return img
     }
 }
@@ -71,6 +77,11 @@ enum AnimalPreview {
 
     static func image(for kind: AnimalKind) async -> UIImage? {
         if let img = cache[kind] { return img }
+        let key = "animal-\(kind.rawValue)"
+        if let saved = PreviewDiskCache.load(key) {
+            cache[kind] = saved
+            return saved
+        }
 
         // The glTF loads asynchronously, so the row shows a symbol until it lands.
         let visual: SCNNode = await withCheckedContinuation { cont in
@@ -121,6 +132,7 @@ enum AnimalPreview {
                                     with: CGSize(width: 240, height: 240),
                                     antialiasingMode: .multisampling4X)
         cache[kind] = img
+        PreviewDiskCache.save(img, key)
         return img
     }
 }
@@ -148,15 +160,9 @@ struct AnimalThumb: View {
 
 struct ShopView: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var ctx
     var settings: UserSettings
     var onPurchase: (DecorationItem) -> Void
     var onPurchaseAnimal: (AnimalKind) -> Void = { _ in }
-    var tuckedAnimals: [OwnedAnimal] = []
-    var onReleaseAnimal: (OwnedAnimal) -> Void = { _ in }
-    var onDeleteAnimal: (OwnedAnimal) -> Void = { _ in }
-
-    @State private var animalToDelete: OwnedAnimal?
 
     var body: some View {
         NavigationStack {
@@ -212,7 +218,7 @@ struct ShopView: View {
                 }
 
                 Section(L(S.shop.decorations)) {
-                    ForEach(DecorationItem.allCases, id: \.self) { item in
+                    ForEach(DecorationItem.allCases.filter { $0.isForSale() }, id: \.self) { item in
                         ShopRow(item: item, canAfford: settings.coinBalance >= item.cost) {
                             buy(item)
                         }
@@ -231,23 +237,6 @@ struct ShopView: View {
                     Text(L(S.shop.zooFooter))
                 }
 
-                if !tuckedAnimals.isEmpty {
-                    Section {
-                        ForEach(tuckedAnimals) { animal in
-                            DoghouseRow(
-                                animal: animal,
-                                onRelease: { onReleaseAnimal(animal); Haptics.tap() },
-                                onDelete: { animalToDelete = animal },
-                                onNameChange: { ctx.saveChanges() }
-                            )
-                        }
-                    } header: {
-                        Text(L(S.shop.resting))
-                    } footer: {
-                        Text(L(S.shop.restingFooter))
-                    }
-                }
-
                 Section {
                     Text(L(S.shop.placeHint))
                         .font(.caption).foregroundStyle(.secondary)
@@ -261,30 +250,13 @@ struct ShopView: View {
                     Button(L(S.common.close)) { dismiss() }
                 }
             }
-            .confirmationDialog(
-                L(S.shop.sayGoodbyeTo, animalToDelete?.displayName ?? ""),
-                isPresented: Binding(get: { animalToDelete != nil },
-                                     set: { if !$0 { animalToDelete = nil } }),
-                titleVisibility: .visible
-            ) {
-                Button(L(S.shop.sayGoodbye), role: .destructive) {
-                    if let a = animalToDelete { onDeleteAnimal(a) }
-                    animalToDelete = nil
-                }
-                Button(L(S.common.cancel), role: .cancel) {}
-            } message: {
-                Text(L(S.shop.goodbyeNote))
-            }
         }
     }
 
     private func buy(_ item: DecorationItem) {
         guard settings.coinBalance >= item.cost else { return }
-        // Roads are paid per painted tile while dragging on the map,
-        // everything else is charged right here.
-        if item != .road {
-            settings.coinBalance -= item.cost
-        }
+        // Charge only once the piece actually lands on the map. Until then this
+        // is a selection, so cancelling placement must not consume coins.
         Haptics.success()
         onPurchase(item)
         dismiss()

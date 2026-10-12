@@ -25,6 +25,9 @@ final class PlacedDecoration {
     /// Player-written name shown on the doghouse sign.
     var label: String = ""
 
+    /// Tidied away into the inventory instead of standing on the map.
+    var isStored: Bool = false
+
     init(type: DecorationItem, gridX: Int, gridY: Int,
          isCornerAnchor: Bool = false, variant: Int = 0) {
         self.type = type
@@ -48,6 +51,11 @@ enum DecorationItem: String, Codable, CaseIterable {
     case doghouse      // psí bouda — pes v ní v noci spí, miska na žrádlo
     case birdFeeder    // krmítko — slétají se na něj ptáci
     case firePit       // ohniště — přes den studené, v noci hoří
+    // seasonal
+    case pumpkins      // dýně se svíčkami
+    case scarecrow     // strašák
+    case christmasTree // vánoční strom se světýlky
+    case snowman       // sněhulák
 
     // Tolerant decode so older saves (and any future trimming) never crash.
     init(from decoder: Decoder) throws {
@@ -73,7 +81,8 @@ enum DecorationItem: String, Codable, CaseIterable {
     /// Anything with a real footprint (roads, pond, fountain) stays on centres.
     var canUseCornerAnchor: Bool {
         switch self {
-        case .tree, .leafTree, .fruitTree, .bush, .bench, .birdFeeder: true
+        case .tree, .leafTree, .fruitTree, .bush, .bench, .birdFeeder,
+             .pumpkins, .scarecrow, .christmasTree, .snowman:          true
         case .road, .fountain, .pond, .doghouse, .firePit:             false
         }
     }
@@ -92,6 +101,10 @@ enum DecorationItem: String, Codable, CaseIterable {
         case .doghouse:   L(T(cs: "Psí bouda", sk: "Psia búda", en: "Doghouse"))
         case .birdFeeder: L(T(cs: "Krmítko", sk: "Kŕmidlo", en: "Bird feeder"))
         case .firePit:    L(T(cs: "Ohniště", sk: "Ohnisko", en: "Fire pit"))
+        case .pumpkins:      L(T(cs: "Dýně", sk: "Tekvice", en: "Pumpkins"))
+        case .scarecrow:     L(T(cs: "Strašák", sk: "Strašiak", en: "Scarecrow"))
+        case .christmasTree: L(T(cs: "Vánoční strom", sk: "Vianočný stromček", en: "Christmas tree"))
+        case .snowman:       L(T(cs: "Sněhulák", sk: "Snehuliak", en: "Snowman"))
         }
     }
 
@@ -108,6 +121,10 @@ enum DecorationItem: String, Codable, CaseIterable {
         case .doghouse:   "dog.fill"
         case .birdFeeder: "bird.fill"
         case .firePit:    "flame.fill"
+        case .pumpkins:      "circle.hexagongrid.fill"
+        case .scarecrow:     "figure.stand"
+        case .christmasTree: "tree.fill"
+        case .snowman:       "snowflake"
         }
     }
 
@@ -124,6 +141,10 @@ enum DecorationItem: String, Codable, CaseIterable {
         case .doghouse:   (0.72, 0.48, 0.28)
         case .birdFeeder: (0.55, 0.62, 0.42)
         case .firePit:    (0.90, 0.48, 0.20)
+        case .pumpkins:      (0.93, 0.52, 0.16)
+        case .scarecrow:     (0.78, 0.62, 0.30)
+        case .christmasTree: (0.24, 0.52, 0.30)
+        case .snowman:       (0.55, 0.70, 0.86)
         }
     }
 
@@ -140,6 +161,10 @@ enum DecorationItem: String, Codable, CaseIterable {
         case .doghouse:   70
         case .birdFeeder: 45
         case .firePit:    55
+        case .pumpkins:      30
+        case .scarecrow:     35
+        case .christmasTree: 50
+        case .snowman:       30
         }
     }
 
@@ -185,6 +210,17 @@ enum DecorationItem: String, Codable, CaseIterable {
         case .firePit:
             L(T(cs: "Po setmění se rozhoří", sk: "Po zotmení sa rozhorí",
                 en: "Lights up after dark"))
+        case .pumpkins:
+            L(T(cs: "Vyřezané dýně se svíčkou uvnitř", sk: "Vyrezávané tekvice so sviečkou vnútri",
+                en: "Carved pumpkins with a candle inside"))
+        case .scarecrow:
+            L(T(cs: "Hlídá pole, vrány se ho nebojí", sk: "Stráži pole, vrany sa ho neboja",
+                en: "Guards the field; the crows aren't scared"))
+        case .christmasTree:
+            L(T(cs: "Se světýlky a hvězdou na špičce", sk: "So svetielkami a hviezdou na špičke",
+                en: "With lights and a star on top"))
+        case .snowman:
+            L(T(cs: "S mrkví a šálou", sk: "S mrkvou a šálom", en: "With a carrot nose and a scarf"))
         }
     }
 }

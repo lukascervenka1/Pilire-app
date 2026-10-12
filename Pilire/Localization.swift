@@ -122,7 +122,7 @@ struct LanguagePickerView: View {
                         .foregroundStyle(Color(red: 0.30, green: 0.27, blue: 0.22))
                     // Deliberately in all three languages: at this point we
                     // don't know which one the player reads.
-                    Text("Vyber jazyk · Vyber jazyk · Choose your language")
+                    Text("Vyber jazyk · Zvoľ si jazyk · Choose your language")
                         .font(.system(.subheadline, design: .rounded))
                         .foregroundStyle(Theme.creamLabel)
                         .multilineTextAlignment(.center)

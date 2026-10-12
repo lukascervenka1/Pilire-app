@@ -73,6 +73,11 @@ final class Building {
     var roofColorIndex: Int = 0
     var facadeIndex: Int = 0
 
+    /// Tidied away into the inventory instead of standing on the map. The record
+    /// is kept rather than deleted, so the calendar and chronicle still remember
+    /// the day it was built, and badges never slip away.
+    var isStored: Bool = false
+
     init(type: BuildingType, gridX: Int, gridY: Int, builtDate: Date = .now, isComplete: Bool = true) {
         self.type = type
         self.gridX = gridX
@@ -94,6 +99,33 @@ enum Material: String, Codable, CaseIterable, Identifiable {
         case .wood:  L(T(cs: "Dřevo", sk: "Drevo", en: "Wood"))
         case .brick: L(T(cs: "Cihly", sk: "Tehly", en: "Bricks"))
         case .steel: L(T(cs: "Ocel", sk: "Oceľ", en: "Steel"))
+        }
+    }
+
+    /// "3 cihly", "8 cihel", "1 cihla". Czech and Slovak decline the noun with
+    /// the number, so "8 cihly" (which is what pasting the plain name produced)
+    /// is simply wrong.
+    @MainActor
+    func amount(_ n: Int) -> String {
+        switch Language.shared.current {
+        case .cs:
+            switch self {
+            case .wood:  n == 1 ? "1 dřevo" : "\(n) dřeva"
+            case .brick: n == 1 ? "1 cihla" : (n <= 4 ? "\(n) cihly" : "\(n) cihel")
+            case .steel: n == 1 ? "1 ocel"  : "\(n) oceli"
+            }
+        case .sk:
+            switch self {
+            case .wood:  n == 1 ? "1 drevo" : "\(n) dreva"
+            case .brick: n == 1 ? "1 tehla" : (n <= 4 ? "\(n) tehly" : "\(n) tehál")
+            case .steel: n == 1 ? "1 oceľ"  : "\(n) ocele"
+            }
+        case .en:
+            switch self {
+            case .wood:  "\(n) wood"
+            case .brick: n == 1 ? "1 brick" : "\(n) bricks"
+            case .steel: "\(n) steel"
+            }
         }
     }
 
@@ -133,11 +165,12 @@ struct MaterialCost {
 // MARK: - Building types
 
 enum BuildingType: String, Codable, CaseIterable {
-    case cottage, house, barn, well
-    case farm, stables
+    case tent, cottage, house, barn, well
+    case farm, homestead, stables
     case tavern, blacksmith, market, shop, flowerShop, post
-    case townhall, school, church, fortress, tower
-    case cathedral, castle
+    case townhall, school, church, fireStation, policeStation, hospital, fortress, tower
+    case cathedral, chateau, castle
+    case hauntedHouse, gingerbreadHouse      // seasonal
 
     // Tolerant decode: a building saved under a removed type (e.g. the old
     // skyscraper) becomes a castle instead of crashing SwiftData.
@@ -151,19 +184,21 @@ enum BuildingType: String, Codable, CaseIterable {
     /// the anchor (occupancy is rotation-aware).
     var footprint: (w: Int, l: Int) {
         switch self {
-        case .tavern, .farm: (2, 1)
-        default:             (1, 1)
+        case .tavern, .farm, .homestead, .stables, .chateau: (2, 1)
+        default:                                   (1, 1)
         }
     }
 
     @MainActor
     var displayName: String {
         switch self {
+        case .tent:       L(T(cs: "Stan", sk: "Stan", en: "Tent"))
         case .cottage:    L(T(cs: "Chalupa", sk: "Chalupa", en: "Cottage"))
         case .house:      L(T(cs: "Rodinný domek", sk: "Rodinný domček", en: "Family house"))
         case .barn:       L(T(cs: "Stodola", sk: "Stodola", en: "Barn"))
         case .well:       L(T(cs: "Studna", sk: "Studňa", en: "Well"))
         case .farm:       L(T(cs: "Farma", sk: "Farma", en: "Farm"))
+        case .homestead:  L(T(cs: "Statek", sk: "Statok", en: "Homestead"))
         case .stables:    L(T(cs: "Stáje", sk: "Stajne", en: "Stables"))
         case .shop:       L(T(cs: "Obchod", sk: "Obchod", en: "Shop"))
         case .flowerShop: L(T(cs: "Květinářství", sk: "Kvetinárstvo", en: "Flower shop"))
@@ -175,19 +210,27 @@ enum BuildingType: String, Codable, CaseIterable {
         case .market:     L(T(cs: "Tržiště", sk: "Trhovisko", en: "Market"))
         case .townhall:   L(T(cs: "Radnice", sk: "Radnica", en: "Town hall"))
         case .church:     L(T(cs: "Kostel", sk: "Kostol", en: "Church"))
+        case .fireStation:   L(T(cs: "Hasiči", sk: "Hasiči", en: "Fire station"))
+        case .policeStation: L(T(cs: "Policie", sk: "Polícia", en: "Police station"))
+        case .hospital:      L(T(cs: "Nemocnice", sk: "Nemocnica", en: "Hospital"))
         case .fortress:   L(T(cs: "Pevnost", sk: "Pevnosť", en: "Fortress"))
         case .cathedral:  L(T(cs: "Katedrála", sk: "Katedrála", en: "Cathedral"))
+        case .chateau:    L(T(cs: "Zámek", sk: "Zámok", en: "Chateau"))
         case .castle:     L(T(cs: "Hrad", sk: "Hrad", en: "Castle"))
+        case .hauntedHouse:     L(T(cs: "Strašidelný dům", sk: "Strašidelný dom", en: "Haunted house"))
+        case .gingerbreadHouse: L(T(cs: "Perníková chaloupka", sk: "Perníková chalúpka", en: "Gingerbread house"))
         }
     }
 
     var emoji: String {
         switch self {
+        case .tent:       "⛺"
         case .cottage:    "🏠"
         case .house:      "🏡"
         case .barn:       "🏚"
         case .well:       "⛲"
         case .farm:       "🌾"
+        case .homestead:  "🚜"
         case .stables:    "🐎"
         case .shop:       "🏬"
         case .flowerShop: "💐"
@@ -199,9 +242,15 @@ enum BuildingType: String, Codable, CaseIterable {
         case .market:     "🏪"
         case .townhall:   "🏛"
         case .church:     "⛪"
+        case .fireStation:   "🚒"
+        case .policeStation: "🚓"
+        case .hospital:      "🏥"
         case .fortress:   "🏯"
         case .cathedral:  "🕌"
+        case .chateau:    "👑"
         case .castle:     "🏰"
+        case .hauntedHouse:     "🎃"
+        case .gingerbreadHouse: "🍪"
         }
     }
 
@@ -209,10 +258,12 @@ enum BuildingType: String, Codable, CaseIterable {
     var cost: MaterialCost {
         switch self {
         case .well:       MaterialCost(wood: 6)
+        case .tent:       MaterialCost(wood: 4)
         case .cottage:    MaterialCost(wood: 10)
         case .house:      MaterialCost(wood: 12, brick: 4)
         case .barn:       MaterialCost(wood: 14, brick: 2)
         case .farm:       MaterialCost(wood: 16, brick: 4)
+        case .homestead:  MaterialCost(wood: 20, brick: 6)
         case .stables:    MaterialCost(wood: 18, brick: 6, steel: 1)
         case .shop:       MaterialCost(wood: 12, brick: 8)
         case .flowerShop: MaterialCost(wood: 10, brick: 6)
@@ -224,9 +275,15 @@ enum BuildingType: String, Codable, CaseIterable {
         case .market:     MaterialCost(wood: 14, brick: 10)
         case .townhall:   MaterialCost(wood: 16, brick: 12, steel: 2)
         case .church:     MaterialCost(wood: 18, brick: 14, steel: 3)
+        case .fireStation:   MaterialCost(wood: 14, brick: 10, steel: 2)
+        case .policeStation: MaterialCost(wood: 12, brick: 12, steel: 2)
+        case .hospital:      MaterialCost(wood: 16, brick: 16, steel: 4)
         case .fortress:   MaterialCost(wood: 20, brick: 16, steel: 5)
         case .cathedral:  MaterialCost(wood: 24, brick: 20, steel: 8)
+        case .chateau:    MaterialCost(wood: 26, brick: 22, steel: 10)
         case .castle:     MaterialCost(wood: 28, brick: 24, steel: 12)
+        case .hauntedHouse:     MaterialCost(wood: 14, brick: 8)
+        case .gingerbreadHouse: MaterialCost(wood: 12, brick: 10)
         }
     }
 }

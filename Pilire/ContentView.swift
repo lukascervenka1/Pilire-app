@@ -3,22 +3,30 @@ import SwiftData
 
 struct ContentView: View {
     @Environment(\.modelContext) private var ctx
+    @Environment(\.scenePhase) private var scenePhase
     @Query(sort: \Building.builtDate)              private var buildings:    [Building]
     @Query(sort: \DayRecord.date, order: .reverse) private var dayRecords:   [DayRecord]
     @Query(sort: \PlacedDecoration.placedDate)     private var decorations:  [PlacedDecoration]
     @Query(sort: \OwnedAnimal.boughtDate)          private var animals:      [OwnedAnimal]
+    @Query(sort: \Habit.createdDate)               private var habits:       [Habit]
     @Query                                         private var settingsAll:  [UserSettings]
 
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
+    @AppStorage("achievementsSeeded") private var achievementsSeeded = false
 
     @State private var tab         = 0
     @State private var scene       = TownScene()
     @State private var sceneReady  = false
     @State private var tappedBuilding: TappedBuilding?
-    @State private var showShop    = false
+    @State private var showInventory = false
     @State private var showBuild   = false
     @State private var placingItem: DecorationItem?
     @State private var placingBuilding: BuildingType?
+    /// Set when the piece being placed comes out of the inventory: it lands for
+    /// free and keeps its record (and with it its history and name).
+    @State private var placingStoredBuilding: Building?
+    @State private var placingStoredDecoration: PlacedDecoration?
+    @State private var storedToast = false
     @State private var payout: PayoutPresentation?
     @State private var loginToast: Int?
     @State private var showOnboarding = false
@@ -28,6 +36,9 @@ struct ContentView: View {
     @State private var doghouseToRename: PlacedDecoration?
     @State private var kennelName = ""
     @State private var tappedAnimal: TappedAnimal?
+    @State private var unlockQueue: [Achievement] = []
+    @State private var dailyRefreshID = UUID()
+    @State private var bootstrappedSettings: UserSettings?
     private let tutorial = Tutorial.shared
 
     struct TappedAnimal: Identifiable {
@@ -39,15 +50,23 @@ struct ContentView: View {
     /// frame before `ensureSettings()` inserts the real one. Never mutates the
     /// context during view rendering (that ran on every body evaluation before).
     private var settings: UserSettings {
-        settingsAll.first ?? UserSettings()
+        settingsAll.first ?? bootstrappedSettings ?? UserSettings()
     }
 
     /// Creates the singleton settings row once — called from a lifecycle
     /// callback (`.onAppear`), not from a computed property read during `body`.
-    private func ensureSettings() {
-        guard settingsAll.isEmpty else { return }
-        ctx.insert(UserSettings())
+    @discardableResult
+    private func ensureSettings() -> UserSettings {
+        if let stored = settingsAll.first {
+            bootstrappedSettings = stored
+            return stored
+        }
+        if let bootstrappedSettings { return bootstrappedSettings }
+        let created = UserSettings()
+        ctx.insert(created)
+        bootstrappedSettings = created
         ctx.saveChanges()
+        return created
     }
 
     var body: some View {
@@ -61,7 +80,10 @@ struct ContentView: View {
                     // bedtime match real time without restarting the app.
                     if newTab == 0 { scene.refreshTimeOfDay() }
                 }
-            DailyView(settings: settings, onDayCompleted: dayCompleted)
+            DailyView(settings: settings,
+                      onDayCompleted: dayCompleted,
+                      onPillarCompleted: checkAchievements)
+                .id(dailyRefreshID)
                 .toolbar(.hidden, for: .tabBar)
                 .tag(1)
             CalendarView()
@@ -89,33 +111,40 @@ struct ContentView: View {
                 .animation(.spring(response: 0.4), value: tutorial.step)
             }
         }
+        .overlay {
+            if let next = unlockQueue.first {
+                AchievementUnlockedOverlay(achievement: next) {
+                    withAnimation(.easeOut(duration: 0.25)) { _ = unlockQueue.removeFirst() }
+                }
+                .transition(.opacity)
+            }
+        }
         .sheet(item: $tappedBuilding) { tb in
             BuildingDetailSheet(
                 node: tb.node,
                 dayRecord: tb.dayRecord,
                 onRotate: { scene.tryRotate(tb.node) },
-                onDemolish: { demolish(tb.node) }
+                onStore: { store(tb.node) }
             )
         }
-        .sheet(isPresented: $showShop) {
-            ShopView(
-                settings: settings,
-                onPurchase: { item in
-                    placingItem = item
+        .sheet(isPresented: $showInventory) {
+            InventoryView(
+                buildings: buildings.filter(\.isStored),
+                decorations: decorations.filter(\.isStored),
+                animals: animals.filter(\.isTucked),
+                onPlaceBuilding: { b in
+                    placingStoredBuilding = b
+                    placingBuilding = b.type
                     scene.isPlacementMode = true
-                    scene.isRoadPaintMode = (item == .road)   // roads paint by dragging
-                    // Greenery snaps to the closest of 5 anchors (centre + corners)
-                    scene.placingUsesAnchors = item.canUseCornerAnchor
                     tab = 0
                 },
-                onPurchaseAnimal: { kind in
-                    // Insert only — syncAnimals owns node creation, so there's
-                    // exactly one roaming node per owned animal.
-                    ctx.insert(OwnedAnimal(kind: kind))
-                    ctx.saveChanges()
-                    tab = 0
+                onPlaceDecoration: { d in
+                    // Roads paint by dragging and use up stored tiles first.
+                    if d.type != .road { placingStoredDecoration = d }
+                    beginPlacement(d.type)
                 },
-                tuckedAnimals: animals.filter(\.isTucked),
+                onSellBuilding: sell,
+                onSellDecoration: sell,
                 onReleaseAnimal: { animal in
                     animal.isTucked = false
                     ctx.saveChanges()
@@ -127,8 +156,25 @@ struct ContentView: View {
                     }
                     ctx.delete(animal)
                     ctx.saveChanges()
-                }
-            )
+                },
+                onRenameAnimal: { ctx.saveChanges() }
+            ) {
+                ShopView(
+                    settings: settings,
+                    onPurchase: { item in
+                        showInventory = false
+                        beginPlacement(item)
+                    },
+                    onPurchaseAnimal: { kind in
+                        // Insert only — syncAnimals owns node creation, so there's
+                        // exactly one roaming node per owned animal.
+                        ctx.insert(OwnedAnimal(kind: kind))
+                        ctx.saveChanges()
+                        showInventory = false
+                        tab = 0
+                    }
+                )
+            }
         }
         .sheet(isPresented: $showBuild) {
             BuildShopView(
@@ -144,7 +190,8 @@ struct ContentView: View {
                     placingBuilding = type
                     scene.isPlacementMode = true
                     tab = 0
-                }
+                },
+                onSelectDecoration: { item in beginPlacement(item) }
             )
         }
         .sheet(item: $payout) { p in
@@ -157,6 +204,10 @@ struct ContentView: View {
             OnboardingView {
                 hasSeenOnboarding = true
                 showOnboarding = false
+                // Now that they've seen what the app is for, the reminder
+                // prompt has some context to stand on.
+                NotificationManager.requestPermission()
+                NotificationManager.scheduleDailyReminders()
                 Tutorial.shared.start()
                 // Welcome gift: material for the first building and enough coins
                 // for a few trees and a stretch of road.
@@ -168,20 +219,23 @@ struct ContentView: View {
             }
         }
         .onAppear {
-            ensureSettings()   // create the settings row here, not during body render
+            activateForCurrentDay()
             // Onboarding waits until a language is picked, so the two full-screen
             // presentations can never collide on a fresh install.
             if !hasSeenOnboarding, Language.shared.hasChosen {
                 // Wait for the splash to fade before presenting the tutorial
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.8) { showOnboarding = true }
             }
-            settings.registerActiveDay()
-            if let reward = settings.claimLoginRewardIfNeeded() {
-                withAnimation(.spring(response: 0.35)) { loginToast = reward }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
-                    withAnimation { loginToast = nil }
-                }
-            }
+            checkAchievements()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            activateForCurrentDay(refreshDailyView: true)
+            scene.refreshTimeOfDay()
+        }
+        .onChange(of: hasSeenOnboarding) { _, seen in
+            guard !seen, Language.shared.hasChosen else { return }
+            showOnboarding = true
         }
     }
 
@@ -198,36 +252,55 @@ struct ContentView: View {
                 .onChange(of: buildings)   { _, _ in syncBuildings() }
                 .onChange(of: decorations) { _, _ in syncDecorations() }
                 .onChange(of: animals)     { _, _ in syncAnimals() }
+                .onChange(of: buildings)   { _, _ in checkAchievements() }
+                .onChange(of: decorations) { _, _ in checkAchievements() }
+                .onChange(of: animals)     { _, _ in checkAchievements() }
+                .onChange(of: habits)      { _, _ in checkAchievements() }
 
             VStack {
-                // Top HUD — everything on one line. Uses .regularMaterial (not
-                // glass): tighter, cheaper over the live 3D scene, and it adapts
-                // to light/dark automatically.
-                HStack(spacing: 6) {
-                    coinBadge
+                // One calm surface keeps every resource readable over clouds,
+                // weather and buildings without a row of competing capsules.
+                HStack(spacing: 0) {
+                    hudValue(icon: "seal.fill", tint: .yellow,
+                             count: settings.coinBalance,
+                             title: L(S.common.coins), info: L(S.town.coinsInfo))
+                    hudDivider
                     ForEach(Material.allCases) { m in
-                        MaterialChip(material: m, count: settings.count(m))
+                        hudValue(icon: m.symbolName,
+                                 tint: Color(red: m.tint.r, green: m.tint.g, blue: m.tint.b),
+                                 count: settings.count(m),
+                                 title: m.displayName, info: m.infoText)
+                        hudDivider
                     }
-                    Spacer(minLength: 4)
-                    momentumBadge
-                    shopButton
+                    hudValue(icon: "leaf.fill", tint: .green,
+                             count: Int(settings.momentum),
+                             title: L(S.town.momentum), info: L(S.town.momentumInfo))
+                    hudDivider
+                    inventoryButton
                 }
+                .padding(.horizontal, 7).padding(.vertical, 6)
+                .background(.regularMaterial,
+                            in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.62), lineWidth: 0.8)
+                }
+                .shadow(color: Color.black.opacity(0.08), radius: 10, y: 3)
                 .padding(.horizontal, 12).padding(.top, 8)
 
                 if let reward = loginToast { loginRewardToast(reward) }
+                if storedToast { storedAwayToast }
                 if placingItem != nil || placingBuilding != nil { placementBanner }
                 Spacer()
             }
         }
         .confirmationDialog(
-            L(S.town.removeQuestion, decoToRemove?.type.displayName.lowercased() ?? ""),
+            decoToRemove?.type.displayName ?? "",
             isPresented: Binding(get: { decoToRemove != nil },
                                  set: { if !$0 { decoToRemove = nil } }),
             titleVisibility: .visible
         ) {
-            Button(L(S.town.removeRefund, (decoToRemove?.type.cost ?? 0) / 2), role: .destructive) {
-                removeDecoration()
-            }
+            Button(L(S.town.storeAway)) { storeDecoration() }
             Button(L(S.common.cancel), role: .cancel) {}
         } message: {
             Text(L(S.town.dragToMove))
@@ -269,7 +342,7 @@ struct ContentView: View {
                 doghouseToRename = doghouseToFeed
                 doghouseToFeed = nil
             }
-            Button(L(S.town.removeKennel), role: .destructive) {
+            Button(L(S.town.storeAway)) {
                 if let dec = doghouseToFeed,
                    let node = scene.decorationNodes.first(where: { $0.associatedDecoration === dec }) {
                     doghouseToFeed = nil
@@ -336,78 +409,48 @@ struct ContentView: View {
 
     /// Sky gradient driven by real time of day and today's weather.
     private var skyColors: [Color] {
-        if scene.weather == .fog {
-            return [Color(red: 0.80, green: 0.84, blue: 0.84),
-                    Color(red: 0.87, green: 0.90, blue: 0.88)]
-        }
-        let base: [Color]
-        switch scene.daylight {
-        case .dawn:
-            base = [Color(red: 0.78, green: 0.72, blue: 0.86),
-                    Color(red: 0.96, green: 0.80, blue: 0.72),
-                    Color(red: 0.98, green: 0.90, blue: 0.80)]
-        case .day:
-            base = [Color(red: 0.66, green: 0.83, blue: 0.93),
-                    Color(red: 0.82, green: 0.91, blue: 0.90),
-                    Color(red: 0.93, green: 0.95, blue: 0.88)]
-        case .dusk:
-            base = [Color(red: 0.46, green: 0.42, blue: 0.66),
-                    Color(red: 0.90, green: 0.62, blue: 0.48),
-                    Color(red: 0.97, green: 0.82, blue: 0.62)]
-        case .night:
-            base = [Color(red: 0.10, green: 0.13, blue: 0.26),
-                    Color(red: 0.16, green: 0.22, blue: 0.38),
-                    Color(red: 0.24, green: 0.32, blue: 0.44)]
-        }
-        if scene.weather == .rain {
-            return base.map { $0.opacity(0.85) }
-        }
-        return base
+        scene.skyColors.map { Color(uiColor: $0) }
     }
 
     // MARK: - HUD elements
 
-    private var coinBadge: some View {
+    private func hudValue(icon: String, tint: Color, count: Int,
+                          title: String, info: String) -> some View {
         HStack(spacing: 4) {
-            Image(systemName: "seal.fill").foregroundStyle(.yellow)
-                .symbolEffect(.bounce, value: settings.coinBalance)
-            Text("\(settings.coinBalance)")
-                .fontWeight(.bold).monospacedDigit()
+            Image(systemName: icon)
+                .foregroundStyle(tint)
+                .symbolEffect(.bounce, value: count)
+            Text("\(count)")
+                .fontWeight(.bold)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .fixedSize(horizontal: true, vertical: false)
         }
         .font(.caption)
-        .padding(.horizontal, 9).padding(.vertical, 6)
-        .background(.regularMaterial, in: Capsule())
+        .frame(minWidth: 44)
+        .padding(.horizontal, 5).padding(.vertical, 3)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(L(S.misc.coinsLabel, settings.coinBalance))
-        .resourceInfo(icon: "seal.fill", tint: .yellow, L(S.common.coins),
-                      L(S.town.coinsInfo))
+        .accessibilityLabel("\(title): \(count)")
+        .resourceInfo(icon: icon, tint: tint, title, info)
     }
 
-    private var momentumBadge: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "leaf.fill").foregroundStyle(.green)
-                .symbolEffect(.bounce, value: Int(settings.momentum))
-            Text("\(Int(settings.momentum))")
-                .fontWeight(.bold).monospacedDigit()
-        }
-        .font(.caption)
-        .padding(.horizontal, 9).padding(.vertical, 6)
-        .background(.regularMaterial, in: Capsule())
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(L(S.misc.momentumLabel, Int(settings.momentum)))
-        .resourceInfo(icon: "leaf.fill", tint: .green, L(S.town.momentum),
-                      L(S.town.momentumInfo))
+    private var hudDivider: some View {
+        Rectangle()
+            .fill(Theme.creamLabel.opacity(0.14))
+            .frame(width: 1, height: 18)
     }
 
-    private var shopButton: some View {
-        Button { showShop = true } label: {
-            Image(systemName: "storefront.fill")
+    private var inventoryButton: some View {
+        Button { showInventory = true } label: {
+            Image(systemName: "backpack.fill")
                 .font(.caption)
-                .padding(.horizontal, 9).padding(.vertical, 7)
-                .background(.regularMaterial, in: Capsule())
+                .foregroundStyle(Theme.creamLabel)
+                .frame(width: 38, height: 30)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(L(S.shop.title))
+        .accessibilityLabel(L(S.inventory.title))
     }
 
     private func loginRewardToast(_ n: Int) -> some View {
@@ -421,21 +464,33 @@ struct ContentView: View {
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
+    private var storedAwayToast: some View {
+        Label(L(S.town.storedToast), systemImage: "backpack.fill")
+            .font(.subheadline.weight(.semibold))
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .background(.thinMaterial, in: Capsule())
+            .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
     private var placementBanner: some View {
         HStack(spacing: 10) {
             if let b = placingBuilding {
-                Image(systemName: "hammer.fill")
-                Text(L(S.town.tapToBuild, b.displayName)).font(.subheadline)
+                Image(systemName: placingStoredBuilding == nil ? "hammer.fill" : "backpack.fill")
+                Text(L(S.town.tapToBuild, b.displayName) + inventorySuffix(placingStoredBuilding != nil))
+                    .font(.subheadline)
             } else if placingItem == .road {
                 Image(systemName: "hand.draw.fill")
-                Text(L(S.town.dragPath, DecorationItem.road.cost))
+                Text(storedRoads > 0 ? L(S.town.dragPathStored, storedRoads)
+                                     : L(S.town.dragPath, DecorationItem.road.cost))
                     .font(.subheadline)
             } else if let item = placingItem, item.canUseCornerAnchor {
-                Image(systemName: "leaf.fill")
-                Text(L(S.town.tapToPlaceCorner, item.displayName))
+                Image(systemName: placingStoredDecoration == nil ? "leaf.fill" : "backpack.fill")
+                Text(L(S.town.tapToPlaceCorner, item.displayName) + inventorySuffix(placingStoredDecoration != nil))
                     .font(.subheadline)
             } else {
-                Text(L(S.town.tapToPlace, placingItem?.displayName ?? "")).font(.subheadline)
+                Text(L(S.town.tapToPlace, placingItem?.displayName ?? "")
+                     + inventorySuffix(placingStoredDecoration != nil))
+                    .font(.subheadline)
             }
             Spacer()
             Button(placingItem == .road ? L(S.common.done) : L(S.common.cancel)) {
@@ -449,9 +504,30 @@ struct ContentView: View {
         .padding(.horizontal, 16).padding(.top, 4)
     }
 
+    private func inventorySuffix(_ fromInventory: Bool) -> String {
+        fromInventory ? " · " + L(S.town.fromInventory) : ""
+    }
+
+    private var storedRoads: Int {
+        decorations.filter { $0.type == .road && $0.isStored }.count
+    }
+
+    /// Start placing a decoration — bought, or taken out of the inventory when
+    /// `placingStoredDecoration` is already set.
+    private func beginPlacement(_ item: DecorationItem) {
+        placingItem = item
+        scene.isPlacementMode = true
+        scene.isRoadPaintMode = (item == .road)   // roads paint by dragging
+        // Greenery snaps to the closest of 5 anchors (centre + corners)
+        scene.placingUsesAnchors = item.canUseCornerAnchor
+        tab = 0
+    }
+
     private func endPlacement() {
         placingItem = nil
         placingBuilding = nil
+        placingStoredBuilding = nil
+        placingStoredDecoration = nil
         scene.isPlacementMode = false
         scene.isRoadPaintMode = false
         scene.placingUsesAnchors = false
@@ -462,13 +538,23 @@ struct ContentView: View {
     private func paintRoadCell(_ col: Int, _ row: Int) {
         guard placingItem == .road else { return }
         guard scene.cellsFree(col: col, row: row) else { return }
-        guard settings.coinBalance >= DecorationItem.road.cost else {
-            Haptics.warning()
-            return
+        let dec: PlacedDecoration
+        if let stored = decorations.first(where: { $0.type == .road && $0.isStored }) {
+            // Tiles you tidied away go down first, for free.
+            stored.isStored = false
+            stored.isCornerAnchor = false
+            stored.gridX = col
+            stored.gridY = row
+            dec = stored
+        } else {
+            guard settings.coinBalance >= DecorationItem.road.cost else {
+                Haptics.warning()
+                return
+            }
+            settings.coinBalance -= DecorationItem.road.cost
+            dec = PlacedDecoration(type: .road, gridX: col, gridY: row)
+            ctx.insert(dec)
         }
-        settings.coinBalance -= DecorationItem.road.cost
-        let dec = PlacedDecoration(type: .road, gridX: col, gridY: row)
-        ctx.insert(dec)
         let node = scene.addDecoration(type: .road, gridX: col, gridY: row)
         node.associatedDecoration = dec
         Haptics.tap()
@@ -491,11 +577,11 @@ struct ContentView: View {
 
     private var expansionCostLabel: String {
         let c = expansionCost
-        if c.coins > 0 { return "\(c.coins) \(L(S.common.coins).lowercased())" }
+        if c.coins > 0 { return S.coinsCount(c.coins) }
         var parts: [String] = []
-        if c.cost.wood > 0  { parts.append("\(c.cost.wood) \(Material.wood.displayName.lowercased())") }
-        if c.cost.brick > 0 { parts.append("\(c.cost.brick) \(Material.brick.displayName.lowercased())") }
-        if c.cost.steel > 0 { parts.append("\(c.cost.steel) \(Material.steel.displayName.lowercased())") }
+        if c.cost.wood > 0  { parts.append(Material.wood.amount(c.cost.wood)) }
+        if c.cost.brick > 0 { parts.append(Material.brick.amount(c.cost.brick)) }
+        if c.cost.steel > 0 { parts.append(Material.steel.amount(c.cost.steel)) }
         return parts.joined(separator: ", ")
     }
 
@@ -558,17 +644,18 @@ struct ContentView: View {
             if let type = placingBuilding {
                 let fp = type.footprint
                 guard scene.cellsFree(col: col, row: row, w: fp.w, l: fp.l) else { Haptics.warning(); return }
-                guard settings.pay(type.cost) else { Haptics.warning(); return }
+                guard let b = takeBuilding(type) else { Haptics.warning(); return }
                 // A tree on a shared corner never blocks building — it makes way
-                // and half its price comes back.
+                // into the inventory.
                 clearCornerGreenery(under: type, col: col, row: row)
-                let b = Building(type: type, gridX: col, gridY: row)
-                if let today = todayRecord() { b.dayRecord = today }
-                ctx.insert(b)
-                let node = scene.addBuilding(type: type, gridX: col, gridY: row, animated: true)
+                b.gridX = col
+                b.gridY = row
+                b.rotation = 0
+                let node = scene.addBuilding(type: type, gridX: col, gridY: row, animated: true,
+                                             style: BuildingStyle(roof: b.roofColorIndex, facade: b.facadeIndex))
                 node.associatedBuilding = b
-                placingBuilding = nil
-                scene.isPlacementMode = false
+                endPlacement()
+                ctx.saveChanges()
                 Haptics.success()
                 withAnimation { Tutorial.shared.advance(from: .build) }
                 return
@@ -584,12 +671,16 @@ struct ContentView: View {
             guard let item = placingItem else { return }
             let fp = item.footprint
             guard scene.cellsFree(col: col, row: row, w: fp.w, l: fp.l) else { Haptics.warning(); return }
-            let dec = PlacedDecoration(type: item, gridX: col, gridY: row)
-            ctx.insert(dec)
-            let node = scene.addDecoration(type: item, gridX: col, gridY: row)
+            guard let dec = takeDecoration(item, variant: 0) else { Haptics.warning(); return }
+            dec.isCornerAnchor = false
+            dec.gridX = col
+            dec.gridY = row
+            dec.rotation = 0
+            let node = scene.addDecoration(type: item, gridX: col, gridY: row, variant: dec.variant)
             node.associatedDecoration = dec
-            placingItem = nil
-            scene.isPlacementMode = false
+            restoreDetails(of: dec, on: node)
+            endPlacement()
+            ctx.saveChanges()
         }
 
         // Small greenery: snapped either to a tile centre or a shared tile corner.
@@ -609,20 +700,24 @@ struct ContentView: View {
                 switch candidate {
                 case let .corner(cx, cy):
                     guard scene.cornerFree(cx: cx, cy: cy) else { continue }
-                    let dec = PlacedDecoration(type: item, gridX: cx, gridY: cy,
-                                               isCornerAnchor: true, variant: variant)
-                    ctx.insert(dec)
+                    guard let dec = takeDecoration(item, variant: variant) else { Haptics.warning(); return }
+                    dec.isCornerAnchor = true
+                    dec.gridX = cx
+                    dec.gridY = cy
                     let node = scene.addDecoration(type: item, gridX: cx, gridY: cy,
-                                                   isCornerAnchor: true, variant: variant)
+                                                   isCornerAnchor: true, variant: dec.variant)
                     node.associatedDecoration = dec
                 case let .tile(col, row):
                     guard (0..<scene.cols).contains(col), (0..<scene.rows).contains(row),
                           scene.cellsFree(col: col, row: row) else { continue }
-                    let dec = PlacedDecoration(type: item, gridX: col, gridY: row, variant: variant)
-                    ctx.insert(dec)
-                    let node = scene.addDecoration(type: item, gridX: col, gridY: row, variant: variant)
+                    guard let dec = takeDecoration(item, variant: variant) else { Haptics.warning(); return }
+                    dec.isCornerAnchor = false
+                    dec.gridX = col
+                    dec.gridY = row
+                    let node = scene.addDecoration(type: item, gridX: col, gridY: row, variant: dec.variant)
                     node.associatedDecoration = dec
                 }
+                ctx.saveChanges()
                 Haptics.tap()
                 endPlacement()
                 return
@@ -637,10 +732,13 @@ struct ContentView: View {
         syncBuildings()
         syncDecorations()
         syncAnimals()
+        // Hand the whole populated scene to Metal now, so the first drag isn't
+        // the thing that compiles its shaders.
+        scene.scheduleWarmUp()
     }
 
-    /// Remove corner greenery standing where a building is about to go up,
-    /// refunding half the price so the player never loses out.
+    /// Corner greenery standing where a building is about to go up moves into
+    /// the inventory, so the player never loses it.
     private func clearCornerGreenery(under type: BuildingType, col: Int, row: Int) {
         let fp = type.footprint
         var doomed: [DecorationNode] = []
@@ -654,8 +752,7 @@ struct ContentView: View {
             }
         }
         for node in doomed {
-            settings.coinBalance += node.type.cost / 2
-            if let dec = node.associatedDecoration { ctx.delete(dec) }
+            node.associatedDecoration?.isStored = true
             scene.removeDecoration(node)
         }
     }
@@ -679,7 +776,14 @@ struct ContentView: View {
     }
 
     private func syncBuildings() {
-        for b in buildings {
+        // Queries can also shrink (full reset). Keep SceneKit in lockstep with
+        // SwiftData instead of only ever adding nodes.
+        for node in scene.buildingNodes
+        where node.associatedBuilding?.isStored ?? true
+            || !buildings.contains(where: { $0 === node.associatedBuilding }) {
+            scene.removeBuilding(node)
+        }
+        for b in buildings where !b.isStored {
             guard !scene.buildingNodes.contains(where: { $0.associatedBuilding === b }) else { continue }
             // Legacy data: relocate a building that no longer fits (out of
             // bounds, or a footprint that grew, like the tavern's beer garden).
@@ -700,7 +804,12 @@ struct ContentView: View {
     }
 
     private func syncDecorations() {
-        for d in decorations {
+        for node in scene.decorationNodes
+        where node.associatedDecoration?.isStored ?? true
+            || !decorations.contains(where: { $0 === node.associatedDecoration }) {
+            scene.removeDecoration(node)
+        }
+        for d in decorations where !d.isStored {
             guard !scene.decorationNodes.contains(where: { $0.associatedDecoration === d }) else { continue }
             if d.isCornerAnchor {
                 guard scene.cornerFree(cx: d.gridX, cy: d.gridY) else { continue }
@@ -722,27 +831,78 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Removal (buildings & decorations)
+    // MARK: - Inventory: putting away, taking out, selling
 
-    private func removeDecoration() {
-        guard let node = decoToRemove else { return }
-        decoToRemove = nil
-        settings.coinBalance += node.type.cost / 2
-        if let model = node.associatedDecoration { ctx.delete(model) }
-        scene.removeDecoration(node)
-        Haptics.drop()
+    /// The record for a building being placed: the stored one when it comes out
+    /// of the inventory (free), otherwise a freshly bought one.
+    private func takeBuilding(_ type: BuildingType) -> Building? {
+        if let stored = placingStoredBuilding {
+            stored.isStored = false
+            return stored
+        }
+        guard settings.pay(type.cost) else { return nil }
+        let b = Building(type: type, gridX: 0, gridY: 0)
+        if let today = todayRecord() { b.dayRecord = today }
+        ctx.insert(b)
+        withAnimation { Tutorial.shared.advance(from: .build) }
+        return b
     }
 
-    private func demolish(_ node: BuildingNode) {
-        if let b = node.associatedBuilding {
-            let c = node.type.cost
-            settings.add(.wood,  c.wood / 2)
-            settings.add(.brick, c.brick / 2)
-            settings.add(.steel, c.steel / 2)
-            ctx.delete(b)
+    private func takeDecoration(_ item: DecorationItem, variant: Int) -> PlacedDecoration? {
+        if let stored = placingStoredDecoration {
+            stored.isStored = false
+            return stored
         }
+        guard settings.coinBalance >= item.cost else { return nil }
+        settings.coinBalance -= item.cost
+        let dec = PlacedDecoration(type: item, gridX: 0, gridY: 0, variant: variant)
+        ctx.insert(dec)
+        return dec
+    }
+
+    /// A doghouse back from the inventory keeps its name and its bowl.
+    private func restoreDetails(of dec: PlacedDecoration, on node: DecorationNode) {
+        guard dec.type == .doghouse else { return }
+        node.setBowlFilled(dec.hasFood)
+        node.setKennelName(dec.label)
+    }
+
+    private func store(_ node: BuildingNode) {
+        node.associatedBuilding?.isStored = true
         scene.removeBuilding(node)
+        finishStoring()
+    }
+
+    private func storeDecoration() {
+        guard let node = decoToRemove else { return }
+        decoToRemove = nil
+        node.associatedDecoration?.isStored = true
+        scene.removeDecoration(node)
+        finishStoring()
+    }
+
+    private func finishStoring() {
+        ctx.saveChanges()
         Haptics.drop()
+        withAnimation(.spring(response: 0.35)) { storedToast = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+            withAnimation { storedToast = false }
+        }
+    }
+
+    private func sell(_ b: Building) {
+        let c = b.type.cost
+        settings.add(.wood,  c.wood / 2)
+        settings.add(.brick, c.brick / 2)
+        settings.add(.steel, c.steel / 2)
+        ctx.delete(b)
+        ctx.saveChanges()
+    }
+
+    private func sell(_ d: PlacedDecoration) {
+        settings.coinBalance += d.type.cost / 2
+        ctx.delete(d)
+        ctx.saveChanges()
     }
 
     // MARK: - Day completion → payout (no auto-building anymore)
@@ -754,6 +914,57 @@ struct ContentView: View {
         let p = settings.processDayClose(completedPillars: count, totalPillars: record.pillars.count)
         Haptics.success()
         payout = PayoutPresentation(payout: p, completedCount: count)
+        checkAchievements()
+    }
+
+    // MARK: - Odznaky
+
+    /// Recomputes the badges from the real data and queues anything newly
+    /// earned for a celebration. Cheap enough to call on every meaningful
+    /// action: one pass over the day records and a few counts.
+    private func checkAchievements() {
+        guard let store = settingsAll.first else { return }
+
+        let stats = Achievements.stats(records: dayRecords, buildings: buildings,
+                                       decorations: decorations, animals: animals,
+                                       habits: habits, settings: store)
+        let unlocked = Achievements.unlockedIDs(stats)
+
+        // First run after badges shipped: quietly adopt whatever the player has
+        // already earned. Fifteen popups in a row would be a punishment, and the
+        // Kronika shows them all anyway. A new player has nothing unlocked at
+        // this point, so their very first badge still gets its moment.
+        guard achievementsSeeded else {
+            store.seenAchievements = Array(unlocked)
+            achievementsSeeded = true
+            ctx.saveChanges()
+            return
+        }
+
+        let seen = Set(store.seenAchievements)
+        let fresh = Achievements.all.filter { unlocked.contains($0.id) && !seen.contains($0.id) }
+        guard !fresh.isEmpty else { return }
+
+        store.seenAchievements.append(contentsOf: fresh.map(\.id))
+        ctx.saveChanges()
+        Haptics.success()
+        unlockQueue.append(contentsOf: fresh)
+    }
+
+    /// Re-run all date-bound state whenever the process becomes active. iOS can
+    /// keep the same view hierarchy alive across midnight, so `onAppear` alone
+    /// is not a reliable boundary for a daily app.
+    private func activateForCurrentDay(refreshDailyView: Bool = false) {
+        let store = ensureSettings()
+        store.registerActiveDay()
+        if let reward = store.claimLoginRewardIfNeeded() {
+            withAnimation(.spring(response: 0.35)) { loginToast = reward }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+                withAnimation { loginToast = nil }
+            }
+        }
+        ctx.saveChanges()
+        if refreshDailyView { dailyRefreshID = UUID() }
     }
 
 
