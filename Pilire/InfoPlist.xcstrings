@@ -1,0 +1,30 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "CFBundleDisplayName" : {
+      "comment" : "Name under the app icon",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Pilíře" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pilíře" } },
+        "sk" : { "stringUnit" : { "state" : "translated", "value" : "Pilíře" } }
+      }
+    },
+    "NSCalendarsWriteOnlyAccessUsageDescription" : {
+      "comment" : "Shown when a pillar is added to Calendar",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Pilíře zapisují tvé naplánované tasky do kalendáře. Aplikace z kalendáře nic nečte." } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pilíře adds your scheduled tasks to your calendar. It never reads anything from it." } },
+        "sk" : { "stringUnit" : { "state" : "translated", "value" : "Pilíře zapisujú tvoje naplánované úlohy do kalendára. Aplikácia z kalendára nič nečíta." } }
+      }
+    },
+    "NSRemindersFullAccessUsageDescription" : {
+      "comment" : "Shown when a habit is exported to Reminders",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Pilíře ti mohou zapsat pravidelné návyky do aplikace Připomínky, aby ti je telefon připomněl i mimo hru." } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pilíře can add your habits to Reminders, so your phone reminds you even outside the game." } },
+        "sk" : { "stringUnit" : { "state" : "translated", "value" : "Pilíře ti môžu zapísať pravidelné návyky do aplikácie Pripomienky, aby ti ich telefón pripomenul aj mimo hry." } }
+      }
+    }
+  },
+  "version" : "1.0"
+}

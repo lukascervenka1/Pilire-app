@@ -19,3 +19,6 @@ build/
 .build/
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 Packages/
+
+# App Store assets (large, kept local)
+AppStore/
