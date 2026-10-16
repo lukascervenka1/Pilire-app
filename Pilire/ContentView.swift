@@ -325,6 +325,9 @@ struct ContentView: View {
             titleVisibility: .visible
         ) {
             if let t = tappedAnimal {
+                if t.node.kind.usesDoghouse, !t.node.isSleeping {
+                    Button(L(S.town.pet)) { t.node.pet(); tappedAnimal = nil }
+                }
                 if t.node.isSleeping {
                     Button(L(S.town.wakeUp)) { t.node.wake(); tappedAnimal = nil }
                 } else if t.node.hasKennel {

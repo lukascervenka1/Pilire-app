@@ -16,6 +16,9 @@ struct DailyView: View {
     @State private var newTime = Self.nextFullHour()
     @State private var timeEdit: TimeEdit?
     @State private var pillarEdit: PillarEdit?
+    @FocusState private var focusedInput: PillarInput?
+
+    private enum PillarInput: Hashable { case today, tomorrow }
 
     struct TimeEdit: Identifiable {
         let id: UUID          // pillar id
@@ -74,11 +77,18 @@ struct DailyView: View {
                 // clears the floating tab bar and can be pulled into view. While
                 // the tutorial banner is up it needs to clear that too, otherwise
                 // the banner sits on top of the button.
-                .contentMargins(.bottom, tutorial.current == nil ? 96 : 220,
+                .contentMargins(.bottom, focusedInput == nil ? (tutorial.current == nil ? 96 : 220) : 24,
                                 for: .scrollContent)
+                .scrollDismissesKeyboard(.interactively)
                 .background(Theme.creamGradient.ignoresSafeArea())
                 .navigationTitle(L(S.daily.title))
-                .toolbar { streakItem; habitsItem; settingsItem }
+                .toolbar {
+                    streakItem; habitsItem; settingsItem
+                    ToolbarItemGroup(placement: .keyboard) {
+                        Spacer()
+                        Button(L(S.common.done)) { focusedInput = nil }
+                    }
+                }
                 .sheet(isPresented: $showSettings) { SettingsView() }
                 .sheet(isPresented: $showHabits, onDismiss: {
                     fillHabits(into: day)
@@ -215,6 +225,9 @@ struct DailyView: View {
         Section {
             HStack {
                 TextField(L(S.daily.addPlaceholder), text: $newText)
+                    .focused($focusedInput, equals: .today)
+                    .background(KeyboardFieldVisibility(isFocused: focusedInput == .today))
+                    .accessibilityIdentifier("pillar.today.input")
                     .submitLabel(.done)
                     .onSubmit { add(to: day) }
                 Button {
@@ -222,12 +235,14 @@ struct DailyView: View {
                 } label: {
                     Image(systemName: withTime ? "clock.fill" : "clock")
                         .foregroundStyle(withTime ? .orange : .secondary)
+                        .frame(minWidth: 44, minHeight: 44)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(withTime ? L(S.daily.cancelPillarTime) : L(S.daily.schedulePillarTime))
                 if !newText.isEmpty {
                     Button { add(to: day) } label: {
                         Image(systemName: "plus.circle.fill").foregroundStyle(.orange)
+                            .frame(minWidth: 44, minHeight: 44)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(L(S.daily.addPillar))
@@ -522,11 +537,15 @@ struct DailyView: View {
             if tomorrowPillars.count < maxPillars {
                 HStack {
                     TextField(L(S.daily.tomorrowPlaceholder), text: $newTomorrowText)
+                        .focused($focusedInput, equals: .tomorrow)
+                        .background(KeyboardFieldVisibility(isFocused: focusedInput == .tomorrow))
+                        .accessibilityIdentifier("pillar.tomorrow.input")
                         .submitLabel(.done)
                         .onSubmit { addToTomorrow() }
                     if !newTomorrowText.isEmpty {
                         Button { addToTomorrow() } label: {
                             Image(systemName: "plus.circle.fill").foregroundStyle(.indigo)
+                                .frame(minWidth: 44, minHeight: 44)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(L(S.daily.addPillarTomorrow))

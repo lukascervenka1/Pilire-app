@@ -477,6 +477,7 @@ enum S {
     // MARK: Map interactions
 
     enum town {
+        static let pet = T(cs: "Pohladit", sk: "Pohladkať", en: "Pet")
         static let storeAway = T(cs: "Uklidit do inventáře", sk: "Uložiť do inventára",
                                  en: "Put in inventory")
         static let storedToast = T(cs: "Uklizeno do inventáře", sk: "Uložené do inventára",

@@ -344,7 +344,7 @@ final class TownScene: NSObject {
     // MARK: - Daylight (real time of day drives the light)
 
     private func applyDaylight(now: Date = .now) {
-        let hour = Calendar.current.component(.hour, from: now)
+        let hour = ScreenshotMode.currentHour(at: now)
         let previous = daylight
         daylight = DaylightPhase(hour: hour)
 
@@ -400,6 +400,10 @@ final class TownScene: NSObject {
     /// bedtime follow real time without a restart.
     func refreshTimeOfDay() {
         applyDaylight()
+        let canFly = weather != .rain && daylight != .night && !UIAccessibility.isReduceMotionEnabled
+        let birds = scnScene.rootNode.childNodes.filter { $0.name == "bird" }
+        if canFly, birds.isEmpty { setupBirds() }
+        for bird in birds { bird.isHidden = !canFly }
     }
 
     // MARK: - Weather (seeded per day: mostly sun, sometimes rain or fog)
@@ -418,7 +422,7 @@ final class TownScene: NSObject {
         z = z ^ (z >> 31)
         let roll = Double(z & 0xFFFF) / Double(0xFFFF)
 
-        weather = roll < 0.70 ? .sunny : (roll < 0.85 ? .rain : .fog)
+        weather = ScreenshotMode.weather ?? (roll < 0.70 ? .sunny : (roll < 0.85 ? .rain : .fog))
 
         switch weather {
         case .sunny:
@@ -499,51 +503,30 @@ final class TownScene: NSObject {
     // MARK: - Birds (occasional fly-over)
 
     private func setupBirds() {
-        guard weather != .rain else { return }
+        guard weather != .rain, daylight != .night, !UIAccessibility.isReduceMotionEnabled else { return }
         for i in 0..<2 {
-            let bird = SCNNode()
-            let body = SCNCone(topRadius: 0, bottomRadius: 0.05, height: 0.16)
-            body.firstMaterial?.diffuse.contents = UIColor(white: 0.25, alpha: 1)
-            body.firstMaterial?.lightingModel = .lambert
-            let b = SCNNode(geometry: body)
-            b.eulerAngles.z = -.pi / 2      // point along +x
-            bird.addChildNode(b)
-            for side in [-1.0, 1.0] as [CGFloat] {
-                let wing = SCNBox(width: 0.10, height: 0.01, length: 0.16, chamferRadius: 0.004)
-                wing.firstMaterial?.diffuse.contents = UIColor(white: 0.28, alpha: 1)
-                let w = SCNNode(geometry: wing)
-                w.position = SCNVector3(0, 0.01, side * 0.11)
-                w.runAction(.repeatForever(.sequence([
-                    .rotateTo(x: side * 0.5, y: 0, z: 0, duration: 0.18),
-                    .rotateTo(x: side * -0.35, y: 0, z: 0, duration: 0.18)
-                ])))
-                bird.addChildNode(w)
+            let bird = AmbientBirdNode()
+            bird.scale = SCNVector3(0.78,0.78,0.78)
+            let margin = Float(cols)/2 + 6
+            let start = SCNVector3(-margin,3.5 + Float(i)*0.65,Float(i)*3.3-1.8)
+            let end = SCNVector3(margin,start.y+0.25,start.z+3.0)
+            let flight = SCNAction.customAction(duration:15) { node,elapsed in
+                let t = Float(elapsed)/15
+                node.position = SCNVector3(start.x+(end.x-start.x)*t,
+                                           start.y+(end.y-start.y)*t+0.20*sin(.pi*t),
+                                           start.z+(end.z-start.z)*t)
+                node.eulerAngles = SCNVector3(-0.015,atan2(end.x-start.x,end.z-start.z),0.065*sin(2 * .pi*t))
             }
-
-            // Spawn beyond the island edge and stay invisible while resting,
-            // fading in/out at the flight ends — no parked birds when zoomed out.
-            let margin = Float(cols) / 2 + 6
-            let span = CGFloat(margin * 2)
-            let flyDur = 14.0
-            let y: Float = 3.2 + Float(i) * 0.7
-            let z: Float = Float(i) * 4 - 2
-            bird.position = SCNVector3(-margin, y, z)
-            bird.opacity = 0
-            bird.name = "bird"
+            bird.position = start;bird.opacity = 0;bird.name = "bird"
             scnScene.rootNode.addChildNode(bird)
-
-            let fly = SCNAction.moveBy(x: span, y: 0.6, z: 2, duration: flyDur)
-            fly.timingMode = .linear
-            let fade = SCNAction.sequence([
-                .fadeIn(duration: 0.6),
-                .wait(duration: flyDur - 1.4),
-                .fadeOut(duration: 0.8),
-            ])
-            let reset = SCNAction.run { n in n.position = SCNVector3(-margin, y, z) }
-            let rest  = SCNAction.wait(duration: 45 + Double(i) * 20)
+            let fade = SCNAction.sequence([.fadeIn(duration:0.8),.wait(duration:13.2),.fadeOut(duration:1)])
             bird.runAction(.sequence([
-                .wait(duration: 6 + Double(i) * 14),
-                .repeatForever(.sequence([.group([fly, fade]), reset, rest])),
+                .wait(duration:8+Double(i)*19),
+                .repeatForever(.sequence([
+                    .group([flight,fade]),
+                    .run { $0.position = start },
+                    .wait(duration:55+Double(i)*23),
+                ])),
             ]))
         }
     }
@@ -636,7 +619,7 @@ final class TownScene: NSObject {
     private func setupCamera() {
         let cam = SCNCamera()
         cam.usesOrthographicProjection = true
-        cam.orthographicScale = 7.5
+        cam.orthographicScale = ScreenshotMode.zoom ?? 7.5
         cam.zNear = -100
         cam.zFar  = 200
         cameraNode.camera = cam
@@ -1460,7 +1443,7 @@ final class TownScene: NSObject {
             isWater: { [weak self] c, r in self?.isWater(col: c, row: r) ?? false },
             worldFor: { [weak self] c, r in self?.gridToWorld(col: c, row: r) ?? SCNVector3Zero },
             isNight: {
-                let phase = DaylightPhase(hour: Calendar.current.component(.hour, from: .now))
+                let phase = DaylightPhase(hour: ScreenshotMode.currentHour())
                 return phase == .night || phase == .dusk
             }
         )
@@ -1496,25 +1479,38 @@ final class TownScene: NSObject {
     /// clear the stored `hasFood` flag.
     var onBowlEmptied: (() -> Void)?
 
-    /// A doghouse nobody else has claimed for the night, with the spot inside it.
-    private func freeKennel(for animal: AnimalNode)
-        -> (cell: (col: Int, row: Int), world: SCNVector3, yaw: Float)? {
-        guard animal.kind.usesDoghouse else { return nil }   // a horse won't fit
-        let houses = decorationNodes.filter { $0.type == .doghouse }
-        guard !houses.isEmpty else { return nil }
-        // One pet per house: claim by index so two dogs don't share a bed.
-        let sleepers = animalNodes.filter { $0 !== animal && $0.isSleeping }
-        for house in houses {
-            let taken = sleepers.contains { s in
-                abs(s.position.x - house.position.x) < 0.4 && abs(s.position.z - house.position.z) < 0.4
+    /// Pick the nearest reachable free doorway, rather than the first house
+    /// in the array. A house is reserved as soon as its pet starts travelling.
+    private func freeKennel(for animal: AnimalNode) -> AnimalKennelDestination? {
+        guard animal.kind.usesDoghouse else { return nil }
+        let claims = Set(animalNodes.filter { $0 !== animal }.compactMap(\.claimedKennelID))
+        var best: (destination: AnimalKennelDestination, distance: Int)?
+        for house in decorationNodes where house.type == .doghouse {
+            let id = ObjectIdentifier(house)
+            guard !claims.contains(id), let bed = house.doghouseBed else { continue }
+            let cell = AnimalCell(col: house.gridX, row: house.gridY)
+            let entrance = AnimalCell(col: cell.col + Int(sin(bed.yaw).rounded()),
+                                      row: cell.row + Int(cos(bed.yaw).rounded()))
+            let land: (AnimalCell) -> Bool = { [weak self] cell in
+                guard let self else { return false }
+                return self.isAnimalWalkable(col: cell.col, row: cell.row)
+                    && !self.isWater(col: cell.col, row: cell.row)
             }
-            guard !taken, let bed = house.doghouseBed else { continue }
-            let world = SCNVector3(house.position.x + bed.offset.x,
-                                   bed.offset.y,
+            guard land(entrance), let route = AnimalNavigation.route(
+                from: AnimalCell(col: animal.col, row: animal.row), to: [entrance], isWalkable: land
+            ), best == nil || route.count < best!.distance else { continue }
+            let world = SCNVector3(house.position.x + bed.offset.x, bed.offset.y,
                                    house.position.z + bed.offset.z)
-            return ((house.gridX, house.gridY), world, bed.yaw)
+            let destination = AnimalKennelDestination(id: id, cell: cell, entrance: entrance,
+                                                      world: world, yaw: bed.yaw) { [weak self, weak house] in
+                guard let self, let house, self.decorationNodes.contains(where: { $0 === house }),
+                      house.gridX == cell.col, house.gridY == cell.row,
+                      abs(house.eulerAngles.y - bed.yaw) < 0.01 else { return false }
+                return true
+            }
+            best = (destination, route.count)
         }
-        return nil
+        return best?.destination
     }
 
     /// The first doghouse whose bowl currently has food in it. Reads the node's
@@ -2374,11 +2370,11 @@ final class DecorationNode: SCNNode, GridOccupant {
         mat.lightingModel = .lambert
         mat.isDoubleSided = true
 
-        let plane = SCNPlane(width: 0.36, height: 0.125)
+        let plane = SCNPlane(width: 0.27, height: 0.093)
         plane.materials = [mat]
         let n = SCNNode(geometry: plane)
         n.name = "namePlate"
-        n.position = SCNVector3(0, 0.38, 0.37)   // on the gable, above the opening
+        n.position = SCNVector3(0, 0.560, 0.319)  // on the gable, clear of the dog’s opening
         addChildNode(n)
     }
 
@@ -2394,44 +2390,19 @@ final class DecorationNode: SCNNode, GridOccupant {
     var doghouseBed: (offset: SCNVector3, yaw: Float)? {
         guard type == .doghouse else { return nil }
         let yaw = eulerAngles.y
-        // Lying in the doorway with head and chest out, body inside — the way a
-        // dog actually rests in its kennel, and the only pose that stays visible
-        // from the game's isometric angle.
-        let depth: Float = 0.18
-        return (SCNVector3(depth * sin(yaw), 0.02, depth * cos(yaw)), yaw)
+        // Rest in the doorway with the body inside and the front paws on the
+        // low entrance mat. Its top is 0.031 above the map, including the deck.
+        let depth: Float = 0.10
+        return (SCNVector3(depth * sin(yaw), 0.031, depth * cos(yaw)), yaw)
     }
 
     /// Krmítko: a small bird drops in every now and then, hops, and leaves.
     func startFeederVisits() {
         guard type == .birdFeeder, !UIAccessibility.isReduceMotionEnabled else { return }
-        let bird = SCNNode()
+        let bird = AmbientBirdNode(kind:.sparrow,flying:false)
         bird.name = "feederBird"
-        let body = SCNSphere(radius: 0.038)
-        body.segmentCount = 8
-        body.materials = [{ let m = SCNMaterial()
-            m.diffuse.contents = UIColor(red: 0.45, green: 0.50, blue: 0.58, alpha: 1)
-            m.lightingModel = .lambert; return m }()]
-        let b = SCNNode(geometry: body)
-        b.scale = SCNVector3(1, 0.9, 1.25)
-        bird.addChildNode(b)
-
-        let head = SCNSphere(radius: 0.024)
-        head.segmentCount = 8
-        head.materials = body.materials
-        let h = SCNNode(geometry: head)
-        h.position = SCNVector3(0, 0.028, 0.038)
-        bird.addChildNode(h)
-
-        let beak = SCNCone(topRadius: 0, bottomRadius: 0.009, height: 0.026)
-        beak.radialSegmentCount = 5
-        beak.materials = [{ let m = SCNMaterial()
-            m.diffuse.contents = UIColor(red: 0.90, green: 0.68, blue: 0.25, alpha: 1)
-            m.lightingModel = .lambert; return m }()]
-        let bk = SCNNode(geometry: beak)
-        bk.position = SCNVector3(0, 0.024, 0.062)
-        bk.eulerAngles.x = .pi / 2
-        bird.addChildNode(bk)
-
+        bird.scale = SCNVector3(0.55,0.55,0.55)
+        bird.startPecking()
         bird.position = SCNVector3(0.06, 0.47, 0.02)
         bird.opacity = 0
         addChildNode(bird)
@@ -4675,85 +4646,182 @@ enum BuildingFactory {
         box(r,w:0.077,h:0.008,l:0.083,x:0.238,y:1.165,z:-0.176,material:iron,chamfer:0.002)
     }
 
+    /// A small town clinic: ivory plaster, blue-green joinery and a sheltered glass entrance.
     private static func buildHospital(_ r: SCNNode, _ f: CGFloat) {
-        let white = facadeMat(.plaster, 0.95, 0.95, 0.93, f)
-        let band  = mat(0.58, 0.76, 0.80, f)
-        let deck  = roofMat(0.74, 0.76, 0.78, f)
-        let red   = mat(0.86, 0.25, 0.22)
-
-        // Flat roofs and a set-back upper floor: the modern block reads as a
-        // hospital next to all the pitched roofs around it.
-        box(r, w: 0.72, h: 0.5, l: 0.56, material: white)
-        box(r, w: 0.76, h: 0.04, l: 0.6, y: 0.5, material: deck)
-        box(r, w: 0.5, h: 0.34, l: 0.44, y: 0.54, z: -0.06, material: white)
-        box(r, w: 0.54, h: 0.04, l: 0.48, y: 0.88, z: -0.06, material: deck)
-
-        // Ribbon windows rather than punched holes
-        for x in [-0.23, 0.23] as [CGFloat] {
-            box(r, w: 0.22, h: 0.12, l: 0.02, x: x, y: 0.12, z: 0.285, material: band, chamfer: 0.01)
+        let plaster = facadeMat(.plaster,0.93,0.90,0.79,f), trim = mat(0.98,0.95,0.85,f)
+        let stone = texMat(.stone,0.67,0.68,0.61,f), teal = mat(0.37,0.56,0.54,f)
+        let roof = roofMat(0.36,0.48,0.53,f), wood = mat(0.50,0.39,0.28,f)
+        let red = mat(0.76,0.28,0.25,f), glass = glassMat()
+        let main = SCNNode(); main.position.z = -0.055; r.addChildNode(main)
+        box(main,w:0.79,h:0.061,l:0.72,material:stone,chamfer:0.017)
+        box(main,w:0.69,h:0.74,l:0.59,y:0.061,material:plaster,chamfer:0.007)
+        for y: CGFloat in [0.064,0.409,0.787] {
+            box(main,w:0.722,h:0.027,l:0.621,y:y,material:trim,chamfer:0.004)
         }
-        box(r, w: 0.6, h: 0.12, l: 0.02, y: 0.31, z: 0.285, material: band, chamfer: 0.01)
-        box(r, w: 0.38, h: 0.11, l: 0.02, y: 0.62, z: 0.165, material: band, chamfer: 0.01)
-
-        // Entrance canopy
-        box(r, w: 0.3, h: 0.035, l: 0.16, y: 0.36, z: 0.33, material: deck)
-        door(r, z: 0.285, w: 0.22, h: 0.32)
-
-        // Red cross on the upper block
-        box(r, w: 0.14, h: 0.045, l: 0.02, y: 0.78, z: 0.165, material: red, chamfer: 0.005)
-        box(r, w: 0.045, h: 0.14, l: 0.02, y: 0.78, z: 0.165, material: red, chamfer: 0.005)
+        for x: CGFloat in [-0.329,0.329] {
+            for z: CGFloat in [-0.279,0.279] {
+                box(main,w:0.028,h:0.69,l:0.028,x:x,y:0.095,z:z,material:trim,chamfer:0.003)
+            }
+        }
+        roofShell(main,span:0.715,depth:0.62,rise:0.285,y:0.818,wall:plaster,roof:roof)
+        func clinicWindow(_ wall: SCNNode, x: CGFloat, y: CGFloat, w: CGFloat = 0.105, h: CGFloat = 0.178) {
+            window(wall,x:x,y:y,z:0.013,w:w+0.036,h:h+0.035,material:teal)
+            window(wall,x:x,y:y,z:0.030,w:w,h:h,material:glass)
+            box(wall,w:0.009,h:h,l:0.010,x:x,y:y-h/2,z:0.047,material:trim,chamfer:0.001)
+            box(wall,w:w,h:0.010,l:0.010,x:x,y:y+0.012,z:0.047,material:trim,chamfer:0.001)
+            box(wall,w:w+0.064,h:0.022,l:0.059,x:x,y:y-h/2-0.029,z:0.022,material:stone,chamfer:0.004)
+        }
+        for side in 0..<4 {
+            let wall = SCNNode(); wall.eulerAngles.y = Float(side)*Float.pi/2
+            wall.position = side%2 == 0 ? SCNVector3(0,0,side == 0 ? 0.295 : -0.295) : SCNVector3(side == 1 ? 0.345 : -0.345,0,0)
+            main.addChildNode(wall)
+            let xs: [CGFloat] = side%2 == 0 ? [-0.225,0.225] : [-0.16,0.16]
+            for x in xs { for y: CGFloat in [0.248,0.621] { clinicWindow(wall,x:x,y:y) } }
+            if side == 0 { clinicWindow(wall,x:0,y:0.647,w:0.10,h:0.13) }
+        }
+        // The pale sign reads clearly against the gable, above the entrance.
+        box(main,w:0.195,h:0.168,l:0.028,y:0.849,z:0.319,material:trim,chamfer:0.012)
+        box(main,w:0.106,h:0.031,l:0.012,y:0.916,z:0.340,material:red,chamfer:0.003)
+        box(main,w:0.031,h:0.106,l:0.012,y:0.878,z:0.340,material:red,chamfer:0.003)
+        // A real pair of glazed doors under a low pitched porch.
+        box(r,w:0.218,h:0.302,l:0.035,y:0.067,z:0.249,material:teal,chamfer:0.006)
+        for x: CGFloat in [-0.049,0.049] {
+            box(r,w:0.083,h:0.258,l:0.016,x:x,y:0.082,z:0.273,material:glass,chamfer:0.003)
+            box(r,w:0.083,h:0.032,l:0.016,x:x,y:0.083,z:0.285,material:teal,chamfer:0.003)
+            box(r,w:0.008,h:0.045,l:0.012,x:x*0.37,y:0.19,z:0.288,material:trim,chamfer:0.002)
+        }
+        let porch = SCNNode(); porch.position.z = 0.319; r.addChildNode(porch)
+        for x: CGFloat in [-0.146,0.146] {
+            box(porch,w:0.032,h:0.327,l:0.032,x:x,y:0.061,z:0.066,material:teal,chamfer:0.003)
+            box(porch,w:0.054,h:0.049,l:0.054,x:x,y:0.038,z:0.066,material:stone,chamfer:0.005)
+        }
+        box(porch,w:0.336,h:0.025,l:0.163,y:0.383,material:trim,chamfer:0.004)
+        roofShell(porch,span:0.307,depth:0.146,rise:0.081,y:0.409,wall:trim,roof:roof)
+        box(r,w:0.36,h:0.027,l:0.20,y:0.003,z:0.378,material:stone,chamfer:0.009)
+        box(r,w:0.304,h:0.032,l:0.149,y:0.030,z:0.362,material:trim,chamfer:0.007)
+        // A small bench and planted urn soften the entrance without blocking the path.
+        for x: CGFloat in [-0.317,-0.217] {
+            box(r,w:0.02,h:0.065,l:0.055,x:x,y:0.025,z:0.346,material:teal,chamfer:0.003)
+        }
+        box(r,w:0.159,h:0.019,l:0.074,x:-0.267,y:0.09,z:0.346,material:wood,chamfer:0.004)
+        box(r,w:0.159,h:0.066,l:0.017,x:-0.267,y:0.113,z:0.315,material:wood,chamfer:0.004)
+        cylinder(r,r:0.053,h:0.067,x:0.282,y:0.018,z:0.345,material:stone)
+        let bush = SCNSphere(radius:0.063); bush.segmentCount = 12; bush.materials = [mat(0.43,0.58,0.37,f)]
+        let shrub = SCNNode(geometry:bush); shrub.position = SCNVector3(0.282,0.124,0.345); shrub.scale.y = 0.85; r.addChildNode(shrub)
+        box(main,w:0.083,h:0.19,l:0.094,x:-0.215,y:0.943,z:-0.18,material:plaster,chamfer:0.005)
+        box(main,w:0.108,h:0.027,l:0.118,x:-0.215,y:1.124,z:-0.18,material:trim,chamfer:0.004)
+        box(main,w:0.063,h:0.006,l:0.072,x:-0.215,y:1.151,z:-0.18,material:stone,chamfer:0.002)
     }
 
-    /// Two cells wide: a long baroque range with a domed centre. Deliberately
-    /// horizontal, where the castle is vertical — they should never be confused
-    /// for one another on the map.
+    /// A two-cell baroque residence: mansard pavilions, a copper-blue dome and a columned balcony.
     private static func buildChateau(_ r: SCNNode, _ f: CGFloat) {
-        let stone = facadeMat(.plaster, 0.93, 0.89, 0.78, f)
-        let roof  = roofMat(0.36, 0.39, 0.49, f)
-        let trim  = mat(0.83, 0.77, 0.63, f)
-        let gold  = mat(0.86, 0.72, 0.32, f)
-
-        let cx: CGFloat = 0.5      // centre of the two-cell footprint
-
-        // Long main range
-        box(r, w: 1.6, h: 0.62, l: 0.5, x: cx, material: stone)
-        box(r, w: 1.66, h: 0.05, l: 0.56, x: cx, y: 0.62, material: trim)
-        gableRoof(r, ridgeLen: 1.66, span: 0.58, x: cx, y: 0.67, material: roof)
-
-        // Dormers along the front slope
-        for dx in [-0.58, -0.3, 0.3, 0.58] as [CGFloat] {
-            box(r, w: 0.11, h: 0.12, l: 0.11, x: cx + dx, y: 0.72, z: 0.1, material: stone)
-            pyramidRoof(r, w: 0.15, h: 0.08, l: 0.15, x: cx + dx, y: 0.84, z: 0.1, material: roof)
+        let plaster = facadeMat(.plaster,0.91,0.83,0.66,f), trim = mat(0.98,0.94,0.83,f)
+        let stone = texMat(.stone,0.70,0.69,0.60,f), roof = roofMat(0.37,0.45,0.54,f)
+        let wood = texMat(.planks,0.42,0.32,0.25,f), gold = mat(0.79,0.64,0.32,f)
+        let iron = mat(0.35,0.41,0.39,f), green = mat(0.38,0.53,0.34,f)
+        let glass = glassMat()
+        func framedWindow(_ wall: SCNNode, x: CGFloat, y: CGFloat, w: CGFloat = 0.087, h: CGFloat = 0.153) {
+            landmarkArch(wall,x:x,y:y-0.016,z:0.009,w:w+0.040,h:h+0.031,material:trim)
+            landmarkArch(wall,x:x,y:y,z:0.022,w:w,h:h,material:glass)
+            box(wall,w:0.009,h:h-0.006,l:0.010,x:x,y:y,z:0.035,material:trim,chamfer:0.001)
+            box(wall,w:w,h:0.009,l:0.010,x:x,y:y+h*0.43,z:0.035,material:trim,chamfer:0.001)
+            box(wall,w:w+0.059,h:0.021,l:0.057,x:x,y:y-0.030,z:0.013,material:stone,chamfer:0.003)
+            box(wall,w:0.023,h:0.038,l:0.022,x:x,y:y+h-0.006,z:0.030,material:trim,chamfer:0.003)
         }
-
-        // Central pavilion, taller, carrying the dome
-        box(r, w: 0.44, h: 0.86, l: 0.58, x: cx, z: 0.06, material: stone)
-        box(r, w: 0.5, h: 0.05, l: 0.64, x: cx, y: 0.86, z: 0.06, material: trim)
-        let domeG = SCNSphere(radius: 0.22)
-        domeG.segmentCount = 14
-        domeG.materials = [roof]
-        let dome = SCNNode(geometry: domeG)
-        dome.position = SCNVector3(cx, 0.91, 0.06)
-        dome.scale = SCNVector3(1, 0.8, 1)
-        r.addChildNode(dome)
-        cylinder(r, r: 0.013, h: 0.11, x: cx, y: 1.07, z: 0.06, material: gold)
-
-        // Windows along the range, skipping where the pavilion stands
-        for i in 0..<9 {
-            let wx = cx - 0.68 + CGFloat(i) * 0.17
-            guard abs(wx - cx) > 0.26 else { continue }
-            window(r, x: wx, y: 0.15, z: 0.26, w: 0.1, h: 0.16)
-            window(r, x: wx, y: 0.41, z: 0.26, w: 0.1, h: 0.13)
+        let cx: CGFloat = 0.5
+        box(r,w:1.86,h:0.055,l:0.75,x:cx,z:-0.035,material:stone,chamfer:0.022)
+        box(r,w:1.59,h:0.60,l:0.45,x:cx,y:0.055,z:-0.045,material:plaster,chamfer:0.007)
+        for y: CGFloat in [0.066,0.35,0.645] { box(r,w:1.63,h:0.027,l:0.48,x:cx,y:y,z:-0.045,material:trim,chamfer:0.004) }
+        let rangeRoof = SCNNode(); rangeRoof.position = SCNVector3(cx,0,-0.045); r.addChildNode(rangeRoof)
+        landmarkRoofTier(rangeRoof,w:1.69,l:0.54,topW:1.43,topL:0.25,h:0.16,y:0.675,material:roof)
+        landmarkRoofTier(rangeRoof,w:1.43,l:0.25,topW:1.23,topL:0.035,h:0.085,y:0.835,material:roof)
+        // Windows continue around the back, so rotation never exposes a blank facade.
+        for face: Float in [-1,1] {
+            let wall = SCNNode(); wall.position = SCNVector3(Float(cx),0,-0.045+face*0.225); wall.eulerAngles.y = face > 0 ? 0 : .pi; r.addChildNode(wall)
+            for x: CGFloat in [-0.47,-0.29,0.29,0.47] {
+                framedWindow(wall,x:x,y:0.15,w:0.086,h:0.143)
+                framedWindow(wall,x:x,y:0.43,w:0.086,h:0.146)
+            }
         }
-
-        // Grand entrance with a pair of columns and a low flight of steps
-        door(r, x: cx, z: 0.36, w: 0.22, h: 0.34)
-        for px in [cx - 0.14, cx + 0.14] {
-            cylinder(r, r: 0.026, h: 0.42, x: px, z: 0.35, material: trim)
+        // End pavilions have steep lower roofs and shallow caps, with a dormer in each face.
+        for x: CGFloat in [-0.20,1.20] {
+            let pavilion = SCNNode(); pavilion.position = SCNVector3(x,0,-0.025); r.addChildNode(pavilion)
+            box(pavilion,w:0.367,h:0.73,l:0.57,y:0.055,material:plaster,chamfer:0.006)
+            for y: CGFloat in [0.064,0.35,0.765] { box(pavilion,w:0.40,h:0.028,l:0.603,y:y,material:trim,chamfer:0.004) }
+            for px: CGFloat in [-0.17,0.17] {
+                for pz: CGFloat in [-0.27,0.27] { box(pavilion,w:0.031,h:0.66,l:0.031,x:px,y:0.10,z:pz,material:trim,chamfer:0.003) }
+            }
+            landmarkRoofTier(pavilion,w:0.44,l:0.64,topW:0.24,topL:0.41,h:0.19,y:0.798,material:roof)
+            landmarkRoofTier(pavilion,w:0.24,l:0.41,topW:0.045,topL:0.23,h:0.085,y:0.988,material:roof)
+            for side in 0..<4 {
+                let wall = SCNNode(); wall.eulerAngles.y = Float(side)*Float.pi/2
+                wall.position = side%2 == 0 ? SCNVector3(0,0,side == 0 ? 0.285 : -0.285) : SCNVector3(side == 1 ? 0.1835 : -0.1835,0,0)
+                pavilion.addChildNode(wall)
+                for y: CGFloat in [0.15,0.46] { framedWindow(wall,x:0,y:y,w:0.098,h:0.183) }
+            }
+            for face: CGFloat in [-1,1] {
+                let dormer = SCNNode(); dormer.position = SCNVector3(0,0,face*0.237); dormer.eulerAngles.y = face > 0 ? 0 : .pi; pavilion.addChildNode(dormer)
+                box(dormer,w:0.126,h:0.118,l:0.055,y:0.862,material:trim,chamfer:0.004)
+                window(dormer,x:0,y:0.922,z:0.035,w:0.076,h:0.086,material:glass)
+                pyramidRoof(dormer,w:0.155,h:0.077,l:0.115,y:0.980,material:roof)
+            }
         }
-        box(r, w: 0.38, h: 0.04, l: 0.1, x: cx, y: 0.42, z: 0.35, material: trim)
-        box(r, w: 0.46, h: 0.03, l: 0.12, x: cx, z: 0.43, material: trim)
-        window(r, x: cx, y: 0.52, z: 0.36, w: 0.16, h: 0.16)
+        let centre = SCNNode(); centre.position = SCNVector3(cx,0,0); r.addChildNode(centre)
+        box(centre,w:0.43,h:0.87,l:0.585,y:0.055,material:plaster,chamfer:0.006)
+        for y: CGFloat in [0.07,0.46,0.887] { box(centre,w:0.47,h:0.035,l:0.623,y:y,material:trim,chamfer:0.004) }
+        for x: CGFloat in [-0.194,0.194] {
+            for z: CGFloat in [-0.28,0.28] { box(centre,w:0.033,h:0.79,l:0.033,x:x,y:0.103,z:z,material:trim,chamfer:0.003) }
+        }
+        // The drum conceals the lower hemisphere; a small lantern and finial crown the dome.
+        let drum = SCNCylinder(radius:0.215,height:0.075); drum.radialSegmentCount = 16; drum.materials = [trim]
+        let drumNode = SCNNode(geometry:drum); drumNode.position.y = 0.941; centre.addChildNode(drumNode)
+        let dome = SCNSphere(radius:0.229); dome.segmentCount = 20; dome.materials = [roof]
+        let domeNode = SCNNode(geometry:dome); domeNode.position.y = 0.966; domeNode.scale.y = 0.70; centre.addChildNode(domeNode)
+        cylinder(centre,r:0.055,h:0.09,y:1.105,material:trim)
+        for side in 0..<4 {
+            let lantern = SCNNode(); lantern.eulerAngles.y = Float(side)*Float.pi/2; centre.addChildNode(lantern)
+            window(lantern,x:0,y:1.151,z:0.053,w:0.03,h:0.049,material:glass)
+        }
+        let cap = cone(centre,r:0.077,h:0.077,y:1.196,material:roof)
+        (cap.geometry as? SCNCone)?.radialSegmentCount = 12
+        cylinder(centre,r:0.009,h:0.069,y:1.265,material:gold)
+        let ball = SCNSphere(radius:0.017); ball.segmentCount = 10; ball.materials = [gold]
+        let ballNode = SCNNode(geometry:ball); ballNode.position.y = 1.332; centre.addChildNode(ballNode)
+        let front = SCNNode(); front.position.z = 0.299; centre.addChildNode(front)
+        landmarkArch(front,y:0.085,z:0.012,w:0.237,h:0.332,material:stone)
+        landmarkArch(front,y:0.089,z:0.027,w:0.184,h:0.293,material:wood)
+        box(front,w:0.008,h:0.272,l:0.009,y:0.09,z:0.039,material:gold,chamfer:0.001)
+        for x: CGFloat in [-0.035,0.035] { box(front,w:0.009,h:0.034,l:0.013,x:x,y:0.201,z:0.043,material:gold,chamfer:0.002) }
+        framedWindow(front,x:0,y:0.556,w:0.141,h:0.236)
+        // Four columns hold the balcony; the upper railing leaves the French window visible.
+        for x: CGFloat in [-0.168,-0.108,0.108,0.168] {
+            cylinder(centre,r:0.020,h:0.325,x:x,y:0.098,z:0.375,material:trim)
+            box(centre,w:0.047,h:0.037,l:0.048,x:x,y:0.07,z:0.375,material:stone,chamfer:0.004)
+            box(centre,w:0.049,h:0.029,l:0.048,x:x,y:0.413,z:0.375,material:trim,chamfer:0.003)
+        }
+        box(centre,w:0.413,h:0.036,l:0.163,y:0.443,z:0.35,material:trim,chamfer:0.005)
+        for i in -4...4 { box(centre,w:0.012,h:0.087,l:0.012,x:CGFloat(i)*0.043,y:0.479,z:0.417,material:iron,chamfer:0.002) }
+        box(centre,w:0.385,h:0.016,l:0.022,y:0.565,z:0.417,material:iron,chamfer:0.003)
+        for x: CGFloat in [-0.184,0.184] {
+            box(centre,w:0.028,h:0.102,l:0.029,x:x,y:0.476,z:0.414,material:trim,chamfer:0.003)
+            box(centre,w:0.016,h:0.016,l:0.135,x:x,y:0.565,z:0.361,material:iron,chamfer:0.002)
+        }
+        for (w,y,z,l) in [(0.43,0.002,0.413,0.158),(0.37,0.028,0.393,0.135),(0.31,0.054,0.374,0.11)] as [(CGFloat,CGFloat,CGFloat,CGFloat)] {
+            box(centre,w:w,h:0.027,l:l,y:y,z:z,material:stone,chamfer:0.006)
+        }
+        let back = SCNNode(); back.position.z = -0.299; back.eulerAngles.y = .pi; centre.addChildNode(back)
+        for y: CGFloat in [0.16,0.55] { framedWindow(back,x:0,y:y,w:0.14,h:0.21) }
+        // Two clipped trees and paired chimney stacks make the residence feel cared for.
+        for x: CGFloat in [-0.015,1.015] {
+            box(r,w:0.111,h:0.073,l:0.11,x:x,y:0.012,z:0.393,material:stone,chamfer:0.012)
+            cylinder(r,r:0.011,h:0.105,x:x,y:0.079,z:0.393,material:wood)
+            let g = SCNSphere(radius:0.068); g.segmentCount = 12; g.materials = [green]
+            let n = SCNNode(geometry:g); n.position = SCNVector3(x,0.197,0.393); n.scale.y = 1.2; r.addChildNode(n)
+        }
+        for x: CGFloat in [0.15,0.85] {
+            box(r,w:0.068,h:0.16,l:0.075,x:x,y:0.79,z:-0.173,material:plaster,chamfer:0.005)
+            box(r,w:0.083,h:0.025,l:0.09,x:x,y:0.939,z:-0.173,material:trim,chamfer:0.004)
+        }
     }
 
     /// The town's landmark: a broad civic block with a clock tower rising from the
@@ -5137,56 +5205,276 @@ enum BuildingFactory {
         box(tower,w:0.084,h:0.014,l:0.015,y:1.710,material:gold,chamfer:0.002)
     }
 
-    private static func buildFortress(_ r: SCNNode, _ f: CGFloat) {
-        let stone = texMat(.stone, 0.60, 0.58, 0.54, f)
-        box(r, w: 0.72, h: 0.6, l: 0.72, material: stone, chamfer: 0.01)
-        // corner towers
-        for (x, z) in [(-0.34, -0.34), (0.34, -0.34), (-0.34, 0.34), (0.34, 0.34)] {
-            cylinder(r, r: 0.12, h: 0.78, x: CGFloat(x), z: CGFloat(z), material: darkStoneMat)
-            cylinder(r, r: 0.14, h: 0.05, x: CGFloat(x), y: 0.78, z: CGFloat(z), material: stone)
+    // MARK: Landmark masonry and roof details
+
+    /// A shallow opening in the local XY wall plane, with a rounded or pointed crown.
+    private static func landmarkArch(_ parent: SCNNode, x: CGFloat = 0, y: CGFloat,
+                                     z: CGFloat, w: CGFloat, h: CGFloat,
+                                     pointed: Bool = false, material: SCNMaterial) {
+        let path = UIBezierPath()
+        path.move(to: CGPoint(x: -w/2, y: 0)); path.addLine(to: CGPoint(x: w/2, y: 0))
+        if pointed {
+            let shoulder = h * 0.62
+            path.addLine(to: CGPoint(x: w/2, y: shoulder))
+            for i in 1...8 {
+                let t = CGFloat(i)/8, u = 1-t
+                path.addLine(to: CGPoint(x: u*u*w/2 + 2*u*t*w*0.46,
+                                        y: u*u*shoulder + 2*u*t*h*0.88 + t*t*h))
+            }
+            for i in 1...8 {
+                let t = CGFloat(i)/8, u = 1-t
+                path.addLine(to: CGPoint(x: -2*u*t*w*0.46 - t*t*w/2,
+                                        y: u*u*h + 2*u*t*h*0.88 + t*t*shoulder))
+            }
+        } else {
+            let radius = w/2, shoulder = h-radius
+            path.addLine(to: CGPoint(x: radius, y: shoulder))
+            for i in 1...12 {
+                let a = CGFloat(i)*CGFloat.pi/12
+                path.addLine(to: CGPoint(x: cos(a)*radius, y: shoulder+sin(a)*radius))
+            }
         }
-        // crenellations
-        for i in 0..<4 {
-            let t = -0.27 + CGFloat(i) * 0.18
-            box(r, w: 0.1, h: 0.1, l: 0.06, x: t, y: 0.6, z: 0.33, material: stone, chamfer: 0.01)
-            box(r, w: 0.06, h: 0.1, l: 0.1, x: 0.33, y: 0.6, z: t, material: stone, chamfer: 0.01)
-        }
-        door(r, z: 0.37, w: 0.22, h: 0.3)
+        path.close()
+        let geometry = SCNShape(path: path, extrusionDepth: 0.012)
+        geometry.materials = [material]
+        let node = SCNNode(geometry: geometry); node.position = SCNVector3(x,y,z)
+        parent.addChildNode(node)
     }
 
+    private static func landmarkBeam(_ parent: SCNNode, from a: SIMD3<Float>, to b: SIMD3<Float>,
+                                     width: CGFloat, depth: CGFloat, material: SCNMaterial) {
+        let delta = b-a
+        let geometry = SCNBox(width: width, height: CGFloat(simd_length(delta)), length: depth, chamferRadius: 0.002)
+        geometry.materials = [material]
+        let node = SCNNode(geometry: geometry)
+        node.simdPosition = (a+b)/2
+        node.simdOrientation = simd_quatf(from: SIMD3<Float>(0,1,0), to: simd_normalize(delta))
+        parent.addChildNode(node)
+    }
+
+    /// Four sloping faces with independent normals: a crisp, closed mansard tier.
+    private static func landmarkRoofTier(_ parent: SCNNode, w: CGFloat, l: CGFloat,
+                                         topW: CGFloat, topL: CGFloat, h: CGFloat, y: CGFloat,
+                                         material: SCNMaterial) {
+        let lower = [SIMD3<Float>(Float(-w/2),0,Float(l/2)), SIMD3<Float>(Float(w/2),0,Float(l/2)),
+                     SIMD3<Float>(Float(w/2),0,Float(-l/2)), SIMD3<Float>(Float(-w/2),0,Float(-l/2))]
+        let upper = [SIMD3<Float>(Float(-topW/2),Float(h),Float(topL/2)), SIMD3<Float>(Float(topW/2),Float(h),Float(topL/2)),
+                     SIMD3<Float>(Float(topW/2),Float(h),Float(-topL/2)), SIMD3<Float>(Float(-topW/2),Float(h),Float(-topL/2))]
+        var vertices: [SCNVector3] = [], normals: [SCNVector3] = [], indices: [Int32] = []
+        func face(_ points: [SIMD3<Float>]) {
+            let normal = simd_normalize(simd_cross(points[1]-points[0], points[2]-points[0]))
+            let start = Int32(vertices.count)
+            vertices += points.map { SCNVector3($0.x,$0.y,$0.z) }
+            normals += Array(repeating: SCNVector3(normal.x,normal.y,normal.z), count: 4)
+            indices += [start,start+1,start+2,start,start+2,start+3]
+        }
+        for i in 0..<4 { let j = (i+1)%4; face([lower[i],lower[j],upper[j],upper[i]]) }
+        face([upper[0],upper[1],upper[2],upper[3]])
+        face([lower[3],lower[2],lower[1],lower[0]])
+        let geometry = SCNGeometry(sources: [.init(vertices: vertices), .init(normals: normals)],
+                                  elements: [.init(indices: indices, primitiveType: .triangles)])
+        geometry.materials = [material]
+        let node = SCNNode(geometry: geometry); node.position.y = Float(y); parent.addChildNode(node)
+    }
+
+    /// A low, defensive courtyard fortress with open battlements and a timber gatehouse.
+    private static func buildFortress(_ r: SCNNode, _ f: CGFloat) {
+        let stone = facadeMat(.stone,0.66,0.65,0.57,f), trim = mat(0.79,0.76,0.65,f)
+        let base = texMat(.stone,0.54,0.56,0.50,f), dark = mat(0.27,0.31,0.29,f)
+        let timber = texMat(.planks,0.44,0.34,0.25,f), iron = mat(0.30,0.34,0.34,f)
+        let roof = roofMat(0.40,0.48,0.43,f), banner = mat(0.66,0.36,0.29,f), brass = mat(0.77,0.63,0.35,f)
+        let glass = glassMat()
+        box(r,w:0.96,h:0.055,l:0.96,material:base,chamfer:0.025)
+        box(r,w:0.66,h:0.025,l:0.66,y:0.055,material:mat(0.71,0.68,0.57,f),chamfer:0.007)
+        // Separate walls leave a visible courtyard. The gate opening is built around, not painted on.
+        for side in 0..<4 {
+            let wall = SCNNode(); wall.eulerAngles.y = Float(side)*Float.pi/2; r.addChildNode(wall)
+            if side == 0 {
+                for x: CGFloat in [-0.235,0.235] {
+                    box(wall,w:0.20,h:0.405,l:0.095,x:x,y:0.055,z:0.32,material:stone,chamfer:0.006)
+                }
+                box(wall,w:0.29,h:0.12,l:0.095,y:0.345,z:0.32,material:stone,chamfer:0.005)
+            } else {
+                box(wall,w:0.68,h:0.405,l:0.095,y:0.055,z:0.32,material:stone,chamfer:0.006)
+                for x: CGFloat in [-0.15,0.15] {
+                    box(wall,w:0.027,h:0.115,l:0.010,x:x,y:0.225,z:0.373,material:dark,chamfer:0.003)
+                    box(wall,w:0.064,h:0.017,l:0.013,x:x,y:0.280,z:0.377,material:dark,chamfer:0.002)
+                }
+            }
+            box(wall,w:0.66,h:0.03,l:0.14,y:0.447,z:0.30,material:trim,chamfer:0.005)
+            for i in -3...3 {
+                let x = CGFloat(i)*0.09
+                box(wall,w:0.054,h:0.09,l:0.079,x:x,y:0.477,z:0.333,material:stone,chamfer:0.004)
+                box(wall,w:0.062,h:0.015,l:0.089,x:x,y:0.556,z:0.333,material:trim,chamfer:0.003)
+            }
+        }
+        for x: CGFloat in [-0.326,0.326] {
+            for z: CGFloat in [-0.326,0.326] {
+                let tower = SCNNode(); tower.position = SCNVector3(x,0,z); r.addChildNode(tower)
+                let h: CGFloat = z > 0 ? 0.66 : 0.77
+                func drum(_ radius: CGFloat, _ height: CGFloat, _ bottom: CGFloat, _ material: SCNMaterial) {
+                    let g = SCNCylinder(radius:radius,height:height); g.radialSegmentCount = 12; g.materials = [material]
+                    let n = SCNNode(geometry:g); n.position.y = Float(bottom+height/2); tower.addChildNode(n)
+                }
+                drum(0.143,0.10,0.045,base); drum(0.121,h-0.14,0.14,stone)
+                drum(0.128,0.025,0.32,trim); drum(0.137,0.043,h-0.02,trim)
+                // Recessed dark stone floor inside the crown; individual merlons reveal the opening.
+                drum(0.121,0.012,h+0.022,dark)
+                for i in 0..<8 {
+                    let angle = CGFloat(i)*CGFloat.pi/4
+                    let block = box(tower,w:0.065,h:0.083,l:0.043,x:sin(angle)*0.115,y:h+0.024,z:cos(angle)*0.115,material:stone,chamfer:0.004)
+                    block.eulerAngles.y = Float(angle)
+                    let cap = box(tower,w:0.070,h:0.013,l:0.049,x:sin(angle)*0.115,y:h+0.099,z:cos(angle)*0.115,material:trim,chamfer:0.003)
+                    cap.eulerAngles.y = Float(angle)
+                }
+                for side in 0..<4 {
+                    let wall = SCNNode(); wall.eulerAngles.y = Float(side)*Float.pi/2; tower.addChildNode(wall)
+                    landmarkArch(wall,y:h-0.25,z:0.118,w:0.045,h:0.135,material:dark)
+                    landmarkArch(wall,y:h-0.238,z:0.126,w:0.021,h:0.108,material:glass)
+                }
+            }
+        }
+        // Rear barracks give the otherwise open courtyard a warm, inhabited focal point.
+        let hall = SCNNode(); hall.position = SCNVector3(0,0,-0.15); r.addChildNode(hall)
+        box(hall,w:0.35,h:0.57,l:0.25,y:0.08,material:stone,chamfer:0.007)
+        box(hall,w:0.378,h:0.035,l:0.278,y:0.63,material:timber,chamfer:0.004)
+        roofShell(hall,span:0.35,depth:0.25,rise:0.23,y:0.665,wall:stone,roof:roof)
+        for x: CGFloat in [-0.095,0.095] {
+            landmarkArch(hall,x:x,y:0.385,z:0.136,w:0.09,h:0.17,material:trim)
+            landmarkArch(hall,x:x,y:0.402,z:0.148,w:0.058,h:0.135,material:glass)
+        }
+        box(hall,w:0.09,h:0.21,l:0.016,y:0.08,z:0.14,material:timber,chamfer:0.004)
+        // Oak double gate and pale voussoirs, with the raised iron grille above.
+        landmarkArch(r,y:0.057,z:0.380,w:0.286,h:0.36,material:trim)
+        landmarkArch(r,y:0.060,z:0.391,w:0.225,h:0.31,material:dark)
+        landmarkArch(r,y:0.067,z:0.403,w:0.193,h:0.277,material:timber)
+        for x: CGFloat in [-0.069,-0.034,0,0.034,0.069] {
+            box(r,w:0.006,h:0.209,l:0.009,x:x,y:0.068,z:0.414,material:dark,chamfer:0.001)
+        }
+        for y: CGFloat in [0.13,0.245] { box(r,w:0.187,h:0.019,l:0.012,y:y,z:0.420,material:iron,chamfer:0.002) }
+        for x: CGFloat in [-0.070,0,0.070] { box(r,w:0.009,h:0.051,l:0.01,x:x,y:0.317,z:0.405,material:iron,chamfer:0.001) }
+        box(r,w:0.235,h:0.034,l:0.124,y:0.006,z:0.43,material:base,chamfer:0.007)
+        box(r,w:0.22,h:0.025,l:0.093,y:0.04,z:0.425,material:trim,chamfer:0.005)
+        for x: CGFloat in [-0.19,0.19] {
+            box(r,w:0.06,h:0.17,l:0.014,x:x,y:0.244,z:0.38,material:banner,chamfer:0.003)
+            box(r,w:0.074,h:0.012,l:0.025,x:x,y:0.408,z:0.384,material:brass,chamfer:0.002)
+        }
+        cylinder(hall,r:0.008,h:0.22,y:0.885,material:brass)
+        let flag = UIBezierPath(); flag.move(to:.zero); flag.addLine(to:CGPoint(x:0.15,y:-0.012)); flag.addLine(to:CGPoint(x:0.12,y:-0.045)); flag.addLine(to:CGPoint(x:0.15,y:-0.084)); flag.addLine(to:CGPoint(x:0,y:-0.077)); flag.close()
+        let g = SCNShape(path:flag,extrusionDepth:0.006); g.materials = [banner]
+        let n = SCNNode(geometry:g); n.position = SCNVector3(0.008,1.087,0); hall.addChildNode(n)
+        // Small stacked stores remain below the wall line.
+        for (x,z) in [(0.17,0.02),(0.19,0.12)] as [(CGFloat,CGFloat)] {
+            box(r,w:0.085,h:0.08,l:0.075,x:x,y:0.08,z:z,material:timber,chamfer:0.004)
+            box(r,w:0.092,h:0.012,l:0.08,x:x,y:0.148,z:z,material:trim,chamfer:0.002)
+        }
+    }
+
+    /// Sandstone Gothic silhouette: twin open belfries, tracery and flying buttresses.
     private static func buildCathedral(_ r: SCNNode, _ f: CGFloat) {
-        let body  = texMat(.stone, 0.87, 0.82, 0.73, f)   // warm sandstone
-        let roof  = mat(0.32, 0.46, 0.56, f)              // slate teal
-        let spire = mat(0.28, 0.40, 0.50, f)
-        let gold  = mat(0.94, 0.80, 0.40, f)
-
-        // Long, tall nave with a steep roof
-        box(r, w: 0.56, h: 0.92, l: 0.82, z: -0.02, material: body)
-        gableRoof(r, ridgeLen: 0.86, span: 0.64, y: 0.92, z: -0.02, material: roof, alongZ: true)
-
-        // Buttresses down both sides of the nave
-        for zz in [-0.28, -0.06, 0.16] as [CGFloat] {
-            box(r, w: 0.05, h: 0.66, l: 0.07, x: -0.31, z: zz, material: body)
-            box(r, w: 0.05, h: 0.66, l: 0.07, x:  0.31, z: zz, material: body)
+        let stone = facadeMat(.stone,0.83,0.79,0.68,f), trim = mat(0.95,0.90,0.77,f)
+        let base = texMat(.stone,0.66,0.65,0.57,f), shadow = mat(0.32,0.37,0.37,f)
+        let roof = roofMat(0.34,0.46,0.53,f), gold = mat(0.79,0.65,0.34,f)
+        let wood = texMat(.planks,0.43,0.32,0.26,f)
+        let glass = glassMat()
+        func lancet(_ wall: SCNNode, x: CGFloat = 0, y: CGFloat, z: CGFloat = 0.012,
+                    w: CGFloat, h: CGFloat) {
+            landmarkArch(wall,x:x,y:y-0.018,z:z,w:w+0.034,h:h+0.036,pointed:true,material:trim)
+            landmarkArch(wall,x:x,y:y,z:z+0.013,w:w,h:h,pointed:true,material:glass)
+            box(wall,w:0.009,h:h*0.83,l:0.010,x:x,y:y,z:z+0.025,material:trim,chamfer:0.001)
+            box(wall,w:w,h:0.01,l:0.010,x:x,y:y+h*0.40,z:z+0.025,material:trim,chamfer:0.001)
+            box(wall,w:w+0.05,h:0.019,l:0.043,x:x,y:y-0.035,z:z+0.013,material:base,chamfer:0.003)
         }
-
-        // Twin front towers with tall spires + gold tips
-        for sx in [-0.32, 0.32] as [CGFloat] {
-            box(r, w: 0.24, h: 1.4, l: 0.24, x: sx, z: 0.34, material: body)
-            window(r, x: sx, y: 0.9, z: 0.47, w: 0.09, h: 0.2)
-            cone(r, r: 0.185, h: 0.6, x: sx, y: 1.4, z: 0.34, material: spire)
-            box(r, w: 0.035, h: 0.1, l: 0.035, x: sx, y: 2.0, z: 0.34, material: gold)
+        box(r,w:0.91,h:0.052,l:0.90,z:-0.005,material:base,chamfer:0.018)
+        let nave = SCNNode(); nave.position.z = -0.063; r.addChildNode(nave)
+        box(nave,w:0.49,h:0.94,l:0.70,y:0.052,material:stone,chamfer:0.006)
+        box(nave,w:0.528,h:0.035,l:0.723,y:0.959,material:trim,chamfer:0.004)
+        roofShell(nave,span:0.49,depth:0.70,rise:0.34,y:0.996,wall:stone,roof:roof)
+        // Narrow side aisles, with visible buttresses lifting toward the nave.
+        for side: CGFloat in [-1,1] {
+            box(nave,w:0.12,h:0.40,l:0.57,x:side*0.291,y:0.055,z:-0.035,material:stone,chamfer:0.005)
+            let slope = box(nave,w:0.163,h:0.025,l:0.62,x:side*0.294,y:0.46,z:-0.035,material:roof,chamfer:0.003)
+            slope.eulerAngles.z = Float(-side*0.43)
+            let wall = SCNNode(); wall.position.x = Float(side*0.245); wall.eulerAngles.y = Float(side)*Float.pi/2; nave.addChildNode(wall)
+            for x: CGFloat in [-0.23,-0.03,0.17] { lancet(wall,x:x,y:0.63,w:0.075,h:0.25) }
+            for z: CGFloat in [-0.295,-0.09,0.115] {
+                box(nave,w:0.065,h:0.55,l:0.068,x:side*0.379,y:0.052,z:z,material:stone,chamfer:0.004)
+                box(nave,w:0.09,h:0.054,l:0.09,x:side*0.379,y:0.053,z:z,material:base,chamfer:0.004)
+                landmarkBeam(nave,from:SIMD3(Float(side*0.26),0.83,Float(z)),to:SIMD3(Float(side*0.379),0.58,Float(z)),width:0.041,depth:0.055,material:trim)
+                pyramidRoof(nave,w:0.079,h:0.11,l:0.079,x:side*0.379,y:0.60,z:z,material:trim)
+            }
         }
-
-        // Central crossing spire — the tallest point
-        box(r, w: 0.2, h: 1.15, l: 0.2, z: -0.12, material: body)
-        cone(r, r: 0.155, h: 0.72, y: 1.15, z: -0.12, material: spire)
-        box(r, w: 0.03, h: 0.12, l: 0.03, y: 1.87, z: -0.12, material: gold)
-
-        // Big rose window + arched door on the front facade
-        cylinder(r, r: 0.13, h: 0.02, y: 0.6, z: 0.5, material: glassMat())
-            .eulerAngles.x = .pi / 2
-        door(r, z: 0.51, w: 0.2, h: 0.4)
+        let rear = SCNNode(); rear.position.z = -0.35; rear.eulerAngles.y = .pi; nave.addChildNode(rear)
+        lancet(rear,y:0.48,w:0.135,h:0.36)
+        // A projecting central entrance gives the steps a clear destination.
+        box(r,w:0.335,h:0.89,l:0.128,y:0.052,z:0.318,material:stone,chamfer:0.006)
+        box(r,w:0.363,h:0.029,l:0.15,y:0.91,z:0.318,material:trim,chamfer:0.004)
+        let pediment = SCNNode(); pediment.position.z = 0.318; r.addChildNode(pediment)
+        roofShell(pediment,span:0.334,depth:0.125,rise:0.16,y:0.939,wall:stone,roof:roof)
+        landmarkArch(r,y:0.06,z:0.390,w:0.298,h:0.493,pointed:true,material:trim)
+        landmarkArch(r,y:0.067,z:0.404,w:0.251,h:0.436,pointed:true,material:base)
+        landmarkArch(r,y:0.076,z:0.418,w:0.211,h:0.388,pointed:true,material:wood)
+        for x: CGFloat in [-0.071,-0.035,0,0.035,0.071] {
+            box(r,w:0.005,h:0.265,l:0.009,x:x,y:0.081,z:0.430,material:shadow,chamfer:0.001)
+        }
+        for y: CGFloat in [0.153,0.30] { box(r,w:0.19,h:0.012,l:0.012,y:y,z:0.435,material:gold,chamfer:0.002) }
+        box(r,w:0.30,h:0.025,l:0.136,y:0.002,z:0.419,material:base,chamfer:0.008)
+        box(r,w:0.263,h:0.027,l:0.101,y:0.027,z:0.415,material:trim,chamfer:0.005)
+        box(r,w:0.226,h:0.024,l:0.075,y:0.054,z:0.409,material:trim,chamfer:0.004)
+        // Stained rose: colored radial panes, a pale rim and eight stone spokes.
+        func disc(_ radius: CGFloat, _ z: CGFloat, _ material: SCNMaterial) {
+            let g = SCNCylinder(radius:radius,height:0.013); g.radialSegmentCount = 32; g.materials = [material]
+            let n = SCNNode(geometry:g); n.position = SCNVector3(0,0.729,z); n.eulerAngles.x = .pi/2; r.addChildNode(n)
+        }
+        disc(0.133,0.393,base); disc(0.116,0.405,trim); disc(0.100,0.416,shadow)
+        let colors: [(CGFloat,CGFloat,CGFloat)] = [(0.49,0.69,0.75),(0.81,0.65,0.39),(0.63,0.57,0.70)]
+        for i in 0..<8 {
+            let c = colors[i%3], pane = mat(c.0,c.1,c.2)
+            pane.name = BuildingNightLighting.windowMaterialName
+            let path = UIBezierPath(); path.move(to:.zero)
+            for j in 0...4 {
+                let angle = (CGFloat(i)+CGFloat(j)/4)*CGFloat.pi/4
+                path.addLine(to:CGPoint(x:cos(angle)*0.095,y:sin(angle)*0.095))
+            }
+            path.close()
+            let g = SCNShape(path:path,extrusionDepth:0.008); g.materials = [pane]
+            let n = SCNNode(geometry:g); n.position = SCNVector3(0,0.729,0.427); r.addChildNode(n)
+            let a = Float(i)*Float.pi/4
+            landmarkBeam(r,from:SIMD3(0,0.729,0.439),to:SIMD3(cos(a)*0.099,0.729+sin(a)*0.099,0.439),width:0.009,depth:0.01,material:trim)
+        }
+        disc(0.024,0.446,trim); disc(0.014,0.455,glass)
+        for x: CGFloat in [-0.299,0.299] {
+            let tower = SCNNode(); tower.position = SCNVector3(x,0,0.275); r.addChildNode(tower)
+            box(tower,w:0.258,h:0.082,l:0.273,y:0.045,material:base,chamfer:0.009)
+            box(tower,w:0.222,h:1.18,l:0.23,y:0.105,material:stone,chamfer:0.005)
+            for px: CGFloat in [-0.099,0.099] {
+                for pz: CGFloat in [-0.103,0.103] { box(tower,w:0.023,h:1.12,l:0.024,x:px,y:0.13,z:pz,material:trim,chamfer:0.003) }
+            }
+            for y: CGFloat in [0.54,0.91,1.266] { box(tower,w:0.248,h:0.025,l:0.258,y:y,material:trim,chamfer:0.004) }
+            for side in 0..<4 {
+                let wall = SCNNode(); wall.eulerAngles.y = Float(side)*Float.pi/2; tower.addChildNode(wall)
+                lancet(wall,y:0.984,z:0.123,w:0.066,h:0.20)
+                if side == 0 { lancet(wall,y:0.654,z:0.123,w:0.063,h:0.19) }
+            }
+            // Open belfry: slender corner piers frame a hanging bronze bell.
+            for px: CGFloat in [-0.089,0.089] {
+                for pz: CGFloat in [-0.094,0.094] { box(tower,w:0.037,h:0.20,l:0.037,x:px,y:1.29,z:pz,material:trim,chamfer:0.003) }
+            }
+            cylinder(tower,r:0.008,h:0.065,y:1.426,material:wood)
+            let bell = SCNCone(topRadius:0.023,bottomRadius:0.049,height:0.068); bell.radialSegmentCount = 10; bell.materials = [gold]
+            let bellNode = SCNNode(geometry:bell); bellNode.position.y = 1.397; tower.addChildNode(bellNode)
+            cylinder(tower,r:0.053,h:0.012,y:1.361,material:gold)
+            box(tower,w:0.263,h:0.036,l:0.273,y:1.48,material:trim,chamfer:0.004)
+            let spire = SCNCone(topRadius:0,bottomRadius:0.165,height:0.405); spire.radialSegmentCount = 8; spire.materials = [roof]
+            let node = SCNNode(geometry:spire); node.position.y = 1.7185; tower.addChildNode(node)
+            cylinder(tower,r:0.014,h:0.02,y:1.913,material:gold)
+            box(tower,w:0.010,h:0.092,l:0.01,y:1.93,material:gold,chamfer:0.001)
+            box(tower,w:0.059,h:0.010,l:0.01,y:1.982,material:gold,chamfer:0.001)
+        }
+        // A smaller ridge lantern breaks up the long roof without competing with the twin towers.
+        box(nave,w:0.11,h:0.14,l:0.13,y:1.24,z:-0.10,material:trim,chamfer:0.004)
+        pyramidRoof(nave,w:0.18,h:0.27,l:0.20,y:1.38,z:-0.10,material:roof)
+        cylinder(nave,r:0.008,h:0.06,y:1.641,z:-0.10,material:gold)
     }
 
     /// A compact hill-town castle: dressed stone, a tall keep, copper-blue roofs and a real gate surround.
@@ -5319,86 +5607,84 @@ enum DecorationFactory {
         }
     }
 
-    /// Psí bouda — open front so you can see the dog asleep inside, plus a bowl.
-    /// The opening faces +z (towards the camera in the default orientation).
+    /// Hollow timber kennel. +Z is the open doorway; the dog rests at local Z = 0.18.
     private static func buildDoghouse(_ r: SCNNode) {
-        let wall = m(0.76, 0.53, 0.32)
-        let wallDark = m(0.63, 0.43, 0.25)
-        let roof = m(0.56, 0.29, 0.23)
-        // Light enough that the sleeping dog stands out against it.
-        let inside = m(0.40, 0.31, 0.24)
-
-        // Sized so a curled-up dog genuinely fits, with a wide low opening so
-        // you can actually see him in there.
-        func slab(_ w: CGFloat, _ h: CGFloat, _ l: CGFloat,
-                  _ x: CGFloat, _ y: CGFloat, _ z: CGFloat, _ mat: SCNMaterial,
-                  chamfer: CGFloat = 0.012) {
-            let g = SCNBox(width: w, height: h, length: l, chamferRadius: chamfer)
-            g.materials = [mat]
-            let n = SCNNode(geometry: g)
-            n.position = SCNVector3(x, y + h / 2, z)
-            r.addChildNode(n)
+        let cedar = m(0.73,0.55,0.36), lighter = m(0.78,0.61,0.41), endGrain = m(0.59,0.44,0.29)
+        let cream = m(0.94,0.87,0.70), roof = m(0.43,0.53,0.48), ridge = m(0.35,0.44,0.41)
+        let inside = m(0.49,0.39,0.28), blue = m(0.39,0.54,0.61)
+        func slab(_ w: CGFloat, _ h: CGFloat, _ l: CGFloat, _ x: CGFloat, _ y: CGFloat, _ z: CGFloat,
+                  _ material: SCNMaterial, chamfer: CGFloat = 0.004) {
+            let g = SCNBox(width:w,height:h,length:l,chamferRadius:min(chamfer,min(w,h,l)/2)); g.materials = [material]
+            let n = SCNNode(geometry:g); n.position = SCNVector3(x,y+h/2,z); r.addChildNode(n)
         }
-
-        let wallH: CGFloat = 0.30
-        slab(0.72, 0.02, 0.66, 0, 0, 0, m(0.50, 0.36, 0.24))              // floor
-        // Kept light enough that the sleeping dog reads against it.
-        slab(0.60, 0.28, 0.58, 0, 0.02, -0.02, inside, chamfer: 0.008)    // interior
-        slab(0.06, wallH, 0.66, -0.33, 0, 0, wall)                        // left wall
-        slab(0.06, wallH, 0.66,  0.33, 0, 0, wall)                        // right wall
-        slab(0.72, wallH, 0.06,  0, 0, -0.30, wallDark)                   // back wall
-        // The front is left wide open: from the game's isometric angle a lintel
-        // hides the whole interior, so the gable above the opening is the only
-        // thing spanning the front.
-
-        // Gable ends filling the triangle under the roof, front and back.
-        for side in [0.33, -0.33] as [CGFloat] {
-            let tri = UIBezierPath()
-            tri.move(to: CGPoint(x: -0.36, y: 0))
-            tri.addLine(to: CGPoint(x: 0.36, y: 0))
-            tri.addLine(to: CGPoint(x: 0, y: 0.20))
-            tri.close()
-            let g = SCNShape(path: tri, extrusionDepth: 0.05)
-            g.materials = [side > 0 ? wall : wallDark]
-            let n = SCNNode(geometry: g)
-            n.position = SCNVector3(0, Float(wallH), Float(side))
-            r.addChildNode(n)
+        // A thin floor, never a solid interior block: the rig needs this cavity to lie down.
+        slab(0.70,0.020,0.65,0,0,-0.015,endGrain,chamfer:0.008)
+        for i in 0..<7 {
+            slab(0.084,0.003,0.596,-0.258+CGFloat(i)*0.086,0.020,-0.018,i%2 == 0 ? cedar : lighter,chamfer:0.001)
         }
-
-        // Gable roof: two slabs meeting in a ridge that runs across the front,
-        // so the triangle sits above the door like a proper kennel.
-        let halfDepth: CGFloat = 0.39
-        let rise: CGFloat = 0.20
-        let slope = sqrt(halfDepth * halfDepth + rise * rise)
-        let pitch = Float(atan2(rise, halfDepth))
-        for side in [1.0, -1.0] as [CGFloat] {
-            let g = SCNBox(width: 0.80, height: 0.035, length: slope, chamferRadius: 0.01)
+        // Individual horizontal boards on the two side walls and the back.
+        for i in 0..<7 {
+            let y = 0.024+CGFloat(i)*0.066
+            for x: CGFloat in [-0.322,0.322] { slab(0.044,0.064,0.62,x,y,-0.03,i%3 == 0 ? lighter : cedar) }
+            slab(0.618,0.064,0.038,0,y,-0.321,i%2 == 0 ? cedar : endGrain)
+        }
+        // Interior rear face only; the middle and entire doorway remain empty.
+        slab(0.595,0.453,0.006,0,0.025,-0.298,inside,chamfer:0.001)
+        for x: CGFloat in [-0.321,0.321] {
+            for z: CGFloat in [-0.314,0.286] { slab(0.057,0.475,0.048,x,0.020,z,cream) }
+            slab(0.058,0.030,0.65,x,0.025,-0.015,endGrain)
+        }
+        let eave: CGFloat = 0.494, rise: CGFloat = 0.213, half: CGFloat = 0.351
+        for z: CGFloat in [-0.329,0.289] {
+            let path = UIBezierPath(); path.move(to:CGPoint(x:-half,y:0)); path.addLine(to:CGPoint(x:half,y:0)); path.addLine(to:CGPoint(x:0,y:rise)); path.close()
+            let g = SCNShape(path:path,extrusionDepth:0.025); g.materials = [cedar]
+            let n = SCNNode(geometry:g); n.position = SCNVector3(0,eave,z); r.addChildNode(n)
+        }
+        // Ridge runs front-to-back (Z), aligned with both triangular gables.
+        let reach: CGFloat = 0.391, pitch = rise/half
+        for side: CGFloat in [-1,1] {
+            let g = SCNBox(width:reach*sqrt(1+pitch*pitch),height:0.029,length:0.73,chamferRadius:0.004)
             g.materials = [roof]
-            let n = SCNNode(geometry: g)
-            n.position = SCNVector3(0, Float(wallH + rise / 2), Float(side * halfDepth / 2))
-            n.eulerAngles.x = side > 0 ? pitch : -pitch
-            r.addChildNode(n)
+            let n = SCNNode(geometry:g); n.position = SCNVector3(side*reach/2,eave+rise-reach*pitch/2+0.014,-0.020)
+            n.eulerAngles.z = Float(-side*atan(pitch)); r.addChildNode(n)
+            for z: CGFloat in [-0.385,0.345] {
+                let fascia = SCNBox(width:reach*sqrt(1+pitch*pitch),height:0.031,length:0.025,chamferRadius:0.003)
+                fascia.materials = [cream]
+                let edge = SCNNode(geometry:fascia); edge.position = SCNVector3(side*reach/2,eave+rise-reach*pitch/2+0.005,z)
+                edge.eulerAngles.z = n.eulerAngles.z; r.addChildNode(edge)
+            }
+            // Two quiet seams break up the roof without noisy tile geometry.
+            for z: CGFloat in [-0.14,0.10] {
+                let seam = SCNBox(width:reach*sqrt(1+pitch*pitch),height:0.006,length:0.007,chamferRadius:0.001)
+                seam.materials = [ridge]
+                let edge = SCNNode(geometry:seam); edge.position = SCNVector3(side*reach/2,eave+rise-reach*pitch/2+0.031,z)
+                edge.eulerAngles.z = n.eulerAngles.z; r.addChildNode(edge)
+            }
         }
-        // Ridge cap
-        slab(0.82, 0.04, 0.07, 0, wallH + rise - 0.02, 0, roof)
-
-        // Bowl in front of the house, off to one side.
-        let bowl = SCNCylinder(radius: 0.075, height: 0.035)
-        bowl.materials = [m(0.35, 0.52, 0.68)]
-        let b = SCNNode(geometry: bowl)
-        b.position = SCNVector3(0.36, 0.018, 0.42)
-        b.name = "bowl"
-        r.addChildNode(b)
-
-        let food = SCNSphere(radius: 0.052)
-        food.segmentCount = 10
-        food.materials = [m(0.42, 0.28, 0.16)]
-        let f = SCNNode(geometry: food)
-        f.position = SCNVector3(0.36, 0.038, 0.42)
-        f.scale = SCNVector3(1, 0.42, 1)
-        f.name = "bowlFood"
-        f.isHidden = true
-        r.addChildNode(f)
+        slab(0.041,0.025,0.766,0,0.708,-0.020,ridge,chamfer:0.008)
+        // Small carved paw on the gable; a custom nameplate can cover it.
+        for (x,y,rad) in [(0.0,0.553,0.017),(-0.026,0.581,0.009),(-0.009,0.594,0.009),(0.011,0.594,0.009),(0.029,0.581,0.009)] as [(CGFloat,CGFloat,CGFloat)] {
+            let g = SCNCylinder(radius:rad,height:0.006); g.radialSegmentCount = 12; g.materials = [cream]
+            let n = SCNNode(geometry:g); n.position = SCNVector3(x,y,0.308); n.eulerAngles.x = .pi/2; r.addChildNode(n)
+        }
+        // Low front deck supports the front paws when the dog rests in the doorway.
+        slab(0.50,0.020,0.16,0,0,0.38,endGrain,chamfer:0.006)
+        slab(0.43,0.008,0.64,0,0.023,0.12,m(0.70,0.72,0.53),chamfer:0.004)
+        // Preserve the bowl anchor used by the pet's feeding behaviour.
+        let bowl = SCNNode(); bowl.name = "bowl"; bowl.position = SCNVector3(0.36,0.018,0.42); r.addChildNode(bowl)
+        let bottom = SCNCylinder(radius:0.068,height:0.013); bottom.radialSegmentCount = 20; bottom.materials = [blue]
+        let base = SCNNode(geometry:bottom); base.position.y = -0.006; bowl.addChildNode(base)
+        let rim = SCNTorus(ringRadius:0.063,pipeRadius:0.010); rim.ringSegmentCount = 24; rim.pipeSegmentCount = 8; rim.materials = [blue]
+        let rimNode = SCNNode(geometry:rim); rimNode.position.y = 0.009; bowl.addChildNode(rimNode)
+        let hollow = SCNCylinder(radius:0.053,height:0.006); hollow.radialSegmentCount = 20; hollow.materials = [m(0.27,0.39,0.44)]
+        let dish = SCNNode(geometry:hollow); dish.position.y = 0.001; bowl.addChildNode(dish)
+        let food = SCNNode(); food.name = "bowlFood"; food.position = SCNVector3(0.36,0.035,0.42); food.isHidden = true; r.addChildNode(food)
+        let kibble = m(0.48,0.33,0.21)
+        for i in 0..<9 {
+            let a = Float(i)*2.4, radius: Float = i == 0 ? 0 : 0.031
+            let g = SCNSphere(radius:0.013); g.segmentCount = 6; g.materials = [kibble]
+            let n = SCNNode(geometry:g); n.position = SCNVector3(cos(a)*radius,Float(i%3)*0.003,sin(a)*radius); n.scale.y = 0.6; food.addChildNode(n)
+        }
     }
 
     /// Krmítko — a little roofed tray on a post; birds come and go.

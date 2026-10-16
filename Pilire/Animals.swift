@@ -137,8 +137,8 @@ enum AnimalKind: String, Codable, CaseIterable, Identifiable {
     /// Seconds to cross one tile at a walk (smaller = faster).
     var walkSecondsPerTile: Double {
         switch self {
-        case .dog:    0.85
-        case .husky:  0.8
+        case .dog:    1.8
+        case .husky:  1.7
         case .fox:    0.75
         case .wolf:   0.9
         case .deer:   0.8
@@ -225,6 +225,22 @@ final class AnimalNode: SCNNode {
     private var clips: [String: SCNAnimationPlayer]
     private var rigged: Bool { !clips.isEmpty }
     private var currentClipKey: String?
+    private var isTravelling = false
+    private var lastPetting = Date.distantPast
+    private var behaviorGeneration = 0
+    private var isRising = false
+    private var lieStartedAt: CFTimeInterval?
+    private var lastDayRest = Date()
+
+    private enum CompanionMotion {
+        static let lie = "companion_liedown"
+        static let sleep = "companion_sleep"
+        static let rise = "companion_rise"
+        static let pet = "companion_pet"
+        static let sniff = "companion_sniff"
+        static let lieDuration = 2.2
+        static let riseDuration = 1.8
+    }
 
     private let isWalkable: (Int, Int) -> Bool
     private let isWater:    (Int, Int) -> Bool
@@ -233,17 +249,21 @@ final class AnimalNode: SCNNode {
 
     /// Somewhere the pet wants to get to (its doghouse at night, or a full bowl).
     /// The scene supplies these; nil means "just wander".
-    var findBed:  ((AnimalNode) -> (cell: (col: Int, row: Int), world: SCNVector3, yaw: Float)?)?
+    var findBed: ((AnimalNode) -> AnimalKennelDestination?)?
     var findBowl: ((AnimalNode) -> (cell: (col: Int, row: Int), world: SCNVector3)?)?
     var onAteFromBowl: ((AnimalNode) -> Void)?
     private var inKennel = false
+    private var kennelDestination: AnimalKennelDestination?
+    var claimedKennelID: ObjectIdentifier? { kennelDestination?.id }
     private var commandedNap = false
     /// Blocks targeted trips (bowl, kennel) for a while after one fails, so an
     /// unreachable target can't be retried in a tight loop.
     private var targetCooldownUntil = Date.distantPast
 
     private(set) var isSleeping = false
-    private var forcedAwake = false          // set for a while after the player wakes it
+    private var awakeUntil = Date.distantPast
+    private var forcedAwake: Bool { Date() < awakeUntil }
+    var occupiesKennel: Bool { inKennel }
 
     init(kind: AnimalKind,
          calm: Bool,
@@ -277,7 +297,7 @@ final class AnimalNode: SCNNode {
     /// Play the best-matching clip for the given keywords, looping. Exact matches
     /// win, then the shortest matching key, so plain "idle"/"walk" beat twitchy
     /// variants like "idle_hitreact" or "idle_2_headlow".
-    private func play(_ keywords: [String]) {
+    private func play(_ keywords: [String], offset: TimeInterval = 0) {
         guard rigged, !clips.isEmpty else { return }
         var picked: String?
         for kw in keywords {
@@ -291,14 +311,21 @@ final class AnimalNode: SCNNode {
         for (k, p) in clips where k != key {
             if k == currentClipKey { p.stop(withBlendOutDuration: 0.25) } else { p.stop() }
         }
+        player.animation.timeOffset = offset
         player.play()
         currentClipKey = key
+        if kind.usesDoghouse {
+            // Authored paw contact dips slightly during the stride; idle is grounded at zero.
+            let lift: CGFloat = key == "walk" ? 0.018 : (key == "gallop" ? 0.014 : 0)
+            poseNode.runAction(.move(to: SCNVector3(0, Float(lift), 0), duration: 0.18), forKey: "pawClearance")
+        }
     }
 
     /// Install the loaded glTF model and start the animal living. Called on the
     /// main thread once the asset finished parsing.
     func adoptRig(visual: SCNNode, clips: [String: SCNAnimationPlayer]) {
         guard parent != nil else { return }
+        cancelBehavior()
         poseNode.removeAllActions()
         poseNode.eulerAngles = SCNVector3Zero
         poseNode.position = SCNVector3Zero
@@ -307,8 +334,15 @@ final class AnimalNode: SCNNode {
         Self.disableShadows(visual)
         self.clips = clips
         currentClipKey = nil
-        play(["idle", "rest"])
-        startLiving()
+        if isCarried {
+            play(["idle", "rest"])
+        } else if isSleeping {
+            restOnGround()
+            scheduleWakeCheck()
+        } else {
+            play(["idle", "rest"])
+            startLiving()
+        }
     }
 
     func place(col: Int, row: Int) {
@@ -330,9 +364,19 @@ final class AnimalNode: SCNNode {
     /// something away. Two threads on one array crashed the game, so every
     /// completion that leads back into thinking hops to the main thread first.
     private func after(_ action: SCNAction, _ then: @escaping @MainActor () -> Void) {
-        runAction(action) {
-            Task { @MainActor in then() }
+        let generation = behaviorGeneration
+        runAction(action) { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.parent != nil, self.behaviorGeneration == generation else { return }
+                then()
+            }
         }
+    }
+
+    /// Invalidate completions already queued from SceneKit's render thread.
+    private func cancelBehavior() {
+        behaviorGeneration += 1
+        removeAllActions()
     }
 
     /// Kick off the endless think-act loop after a small random delay so a herd
@@ -349,7 +393,7 @@ final class AnimalNode: SCNNode {
     /// straight line) or a rest. Deciding per-journey — not per-tile — keeps the
     /// motion calm instead of twitchy.
     private func behave() {
-        guard parent != nil, !isCarried else { return }
+        guard parent != nil, !isCarried, !isSleeping, !isRising else { return }
         let canSeekTarget = Date() >= targetCooldownUntil
 
         // A full bowl beats everything else — go eat.
@@ -362,9 +406,7 @@ final class AnimalNode: SCNNode {
         // walk home and curl up inside it.
         if isNight(), !kind.isNocturnal, !forcedAwake {
             if canSeekTarget, let bed = findBed?(self) {
-                headTo(bed.cell, then: { [weak self] in
-                    self?.enterKennel(world: bed.world, yaw: bed.yaw)
-                })
+                goToKennel(bed)
             } else {
                 sleep()
             }
@@ -383,36 +425,50 @@ final class AnimalNode: SCNNode {
     /// `behave()` straight back, which would recurse until the thread locked up.
     private func abandonTarget() {
         targetCooldownUntil = Date().addingTimeInterval(20)
+        kennelDestination = nil
+        inKennel = false
+        isSleeping = false
+        commandedNap = false
+        isTravelling = false
+        play(["idle"])
         after(.wait(duration: 0.5)) { [weak self] in self?.behave() }
     }
 
     // MARK: Going somewhere on purpose
 
-    /// Walk greedily towards `target`, one tile at a time, then run `arrive`.
-    /// Greedy is plenty on an open island and never gets stuck for long: if it
-    /// can't get closer it gives up and goes back to wandering.
-    private func headTo(_ target: (col: Int, row: Int), steps: Int = 26,
+    /// Search the whole land grid, including detours that initially lead away
+    /// from the destination. Replan at each tile so new buildings are respected.
+    private func headTo(_ target: (col: Int, row: Int), stopAdjacent: Bool = true,
+                        isValid: @escaping () -> Bool = { true },
                         then arrive: @escaping () -> Void) {
-        guard parent != nil, !isCarried else { return }
-        let dist = abs(col - target.col) + abs(row - target.row)
-        if dist <= 1 { arrive(); return }
-        guard steps > 0 else { abandonTarget(); return }
-
-        let options = walkableDirs().filter { !isWater(col + $0.dx, row + $0.dy) }
-        guard let step = options.min(by: {
-            abs(col + $0.dx - target.col) + abs(row + $0.dy - target.row)
-                < abs(col + $1.dx - target.col) + abs(row + $1.dy - target.row)
-        }) else { abandonTarget(); return }
-
-        // Can't get any closer (blocked) → back off instead of retrying forever.
-        guard abs(col + step.dx - target.col) + abs(row + step.dy - target.row) < dist else {
-            abandonTarget(); return
+        guard parent != nil, !isCarried, isValid() else { abandonTarget(); return }
+        let goal = AnimalCell(col: target.col, row: target.row)
+        guard stopAdjacent || canWalkOnLand(goal) else { abandonTarget(); return }
+        let goals = stopAdjacent ? Set(goal.neighbors.filter(canWalkOnLand)) : [goal]
+        guard let path = AnimalNavigation.route(from: AnimalCell(col: col, row: row),
+                                                to: goals, isWalkable: canWalkOnLand) else {
+            abandonTarget()
+            return
         }
-
+        guard let next = path.first else { arrive(); return }
+        let step = (dx: next.col - col, dy: next.row - row)
+        isTravelling = true
         play(["walk", "trot"])
         let turned = step.dx != lastDir?.dx || step.dy != lastDir?.dy
         stepTile(step, sprint: false, turned: turned) { [weak self] in
-            self?.headTo(target, steps: steps - 1, then: arrive)
+            self?.headTo(target, stopAdjacent: stopAdjacent, isValid: isValid, then: arrive)
+        }
+    }
+
+    private func canWalkOnLand(_ cell: AnimalCell) -> Bool {
+        isWalkable(cell.col, cell.row) && !isWater(cell.col, cell.row)
+    }
+
+    private func goToKennel(_ bed: AnimalKennelDestination) {
+        kennelDestination = bed   // reserve while travelling, including for the other dog
+        headTo((bed.entrance.col, bed.entrance.row), stopAdjacent: false,
+               isValid: bed.isValid) { [weak self] in
+            self?.enterKennel(world: bed.world, yaw: bed.yaw)
         }
     }
 
@@ -436,48 +492,109 @@ final class AnimalNode: SCNNode {
         }
     }
 
-    /// Settle into the doghouse: slide into the opening, face out, and sleep.
+    /// Rest at the actual floor height, without burying the legs or shrinking the rig.
     private func enterKennel(world: SCNVector3, yaw: Float) {
+        guard kennelDestination?.isValid() == true else { abandonTarget(); return }
         inKennel = true
         isSleeping = true
-        for (_, p) in clips { p.stop(withBlendOutDuration: 0.3) }
-        currentClipKey = nil
-
-        let slide = SCNAction.move(to: SCNVector3(world.x, 0, world.z), duration: 0.7)
+        isTravelling = true
+        play(["walk", "idle"])
+        let distance = hypot(world.x - position.x, world.z - position.z)
+        let slide = SCNAction.move(to: world, duration: max(0.4, Double(distance) * kind.walkSecondsPerTile))
         slide.timingMode = .easeInEaseOut
-        runAction(.sequence([
-            .rotateTo(x: 0, y: CGFloat(yaw), z: 0, duration: 0.3, usesShortestUnitArc: true),
+        after(.sequence([
+            .rotateTo(x: 0, y: CGFloat(yaw + .pi), z: 0, duration: 0.25, usesShortestUnitArc: true),
             slide,
+            .rotateTo(x: 0, y: CGFloat(yaw), z: 0, duration: 0.6, usesShortestUnitArc: true),
         ])) { [weak self] in
-            guard let self else { return }
-            // Curl up: settle onto the floor, tuck the legs under by sinking a
-            // little, and shrink slightly the way a curled dog actually does.
-            let curl = SCNAction.group([
-                .move(to: SCNVector3(0, -0.10, 0), duration: 0.55),
-                .rotateTo(x: 0.14, y: 0, z: 0, duration: 0.55, usesShortestUnitArc: true),
-                .scale(to: 0.88, duration: 0.55),
-            ])
-            curl.timingMode = .easeInEaseOut
-            self.poseNode.runAction(curl)
+            guard let self, self.isSleeping, !self.isCarried else { return }
+            self.isTravelling = false
+            self.restOnGround()
             self.scheduleWakeCheck()
         }
     }
 
     // MARK: Sleeping
 
+    private func restOnGround() {
+        poseNode.removeAllActions()
+        poseNode.eulerAngles = SCNVector3Zero
+        poseNode.scale = SCNVector3(1,1,1)
+        poseNode.position = SCNVector3Zero
+        guard kind.usesDoghouse, clips[CompanionMotion.lie] != nil else {
+            play(["idle_2_headlow", "idle_2", "idle", "rest"])
+            return
+        }
+        lieStartedAt = CACurrentMediaTime()
+        play([CompanionMotion.lie])
+        after(.wait(duration: CompanionMotion.lieDuration)) { [weak self] in
+            guard let self, self.isSleeping, !self.isCarried else { return }
+            self.play([CompanionMotion.sleep])
+        }
+    }
+
+    /// Head first, then shoulders and haunches; walking waits for the paws to support the body.
+    private func standUp(then done: @escaping @MainActor () -> Void) {
+        isSleeping = false
+        isRising = true
+        let elapsed = lieStartedAt.map { CACurrentMediaTime() - $0 }
+        lieStartedAt = nil
+        var duration = 0.35
+        if kind.usesDoghouse, clips[CompanionMotion.rise] != nil, let elapsed {
+            // If interrupted during lowering, enter the reverse clip at the same chest height.
+            let offset = elapsed < 1.35 ? 0.35 + 1.45 * (1 - max(0, elapsed) / 1.35) : 0
+            play([CompanionMotion.rise], offset: offset)
+            duration = CompanionMotion.riseDuration - offset
+        } else {
+            play(["idle", "rest"])
+        }
+        after(.wait(duration: max(0.18, duration))) { [weak self] in
+            guard let self, !self.isCarried else { return }
+            self.isRising = false
+            self.play(["idle", "rest"])
+            self.leaveKennel(then: done)
+        }
+    }
+
+    /// Leave through the same doorway before resuming grid movement.
+    private func leaveKennel(then done: @escaping @MainActor () -> Void) {
+        guard inKennel, let bed = kennelDestination, bed.isValid() else {
+            inKennel = false
+            kennelDestination = nil
+            done()
+            return
+        }
+        guard canWalkOnLand(bed.entrance) else {
+            // A building placed in front of the door while the pet was asleep
+            // must not make it walk through that building on waking.
+            after(.wait(duration: 2)) { [weak self] in self?.leaveKennel(then: done) }
+            return
+        }
+        isTravelling = true
+        play(["walk"])
+        let exit = worldFor(bed.entrance.col, bed.entrance.row)
+        let distance = hypot(exit.x - position.x, exit.z - position.z)
+        after(.sequence([
+            .rotateTo(x: 0, y: CGFloat(bed.yaw), z: 0, duration: 0.2, usesShortestUnitArc: true),
+            .move(to: exit, duration: Double(distance) * kind.walkSecondsPerTile),
+        ])) { [weak self] in
+            guard let self else { return }
+            self.col = bed.entrance.col
+            self.row = bed.entrance.row
+            self.inKennel = false
+            self.kennelDestination = nil
+            self.isTravelling = false
+            self.lastDir = nil
+            self.play(["idle"])
+            done()
+        }
+    }
+
     private func sleep() {
         isSleeping = true
-        // Freeze the rig (cheap) and drop into a low, head-down resting pose.
-        for (_, p) in clips { p.stop(withBlendOutDuration: 0.3) }
-        currentClipKey = nil
-        removeAllActions()
-        poseNode.removeAllActions()
-        let settle = SCNAction.group([
-            .move(to: SCNVector3(0, -0.05, 0), duration: 0.6),
-            .rotateTo(x: 0.35, y: 0, z: 0, duration: 0.6, usesShortestUnitArc: true),
-        ])
-        settle.timingMode = .easeInEaseOut
-        poseNode.runAction(settle)
+        isTravelling = false
+        cancelBehavior()
+        restOnGround()
         scheduleWakeCheck()
     }
 
@@ -485,22 +602,18 @@ final class AnimalNode: SCNNode {
     /// its kennel by hand naps a little longer, then lets itself out — it can
     /// never end up parked in there forever.
     private func scheduleWakeCheck() {
-        let delay = commandedNap ? Double.random(in: 60...90) : Double.random(in: 15...30)
+        let shortVisit = commandedNap
+        let delay = shortVisit ? Double.random(in: 12...18) : Double.random(in: 15...30)
         commandedNap = false
         after(.wait(duration: delay)) { [weak self] in
             guard let self else { return }
-            if self.isNight(), !self.kind.isNocturnal, !self.forcedAwake {
+            if !shortVisit, self.isNight(), !self.kind.isNocturnal, !self.forcedAwake {
                 self.scheduleWakeCheck()   // still dark — stay put
                 return
             }
-            self.isSleeping = false
-            self.inKennel = false
-            self.poseNode.runAction(.group([
-                .move(to: SCNVector3Zero, duration: 0.4),
-                .rotateTo(x: 0, y: 0, z: 0, duration: 0.4, usesShortestUnitArc: true),
-                .scale(to: 1, duration: 0.4),      // stand back up to full size
-            ]))
-            self.behave()
+            if shortVisit { self.awakeUntil = Date().addingTimeInterval(60) }
+            self.lastDayRest = Date()
+            self.standUp { [weak self] in self?.behave() }
         }
     }
 
@@ -512,26 +625,83 @@ final class AnimalNode: SCNNode {
     /// Whether a doghouse is available to be sent to.
     var hasKennel: Bool { findBed?(self) != nil }
 
+    /// A small, voluntary moment of affection; never interrupts a journey or sleep.
+    func pet() {
+        guard kind.usesDoghouse, !isCarried, !isSleeping, !isRising,
+              Date().timeIntervalSince(lastPetting) > 3 else { return }
+        lastPetting = Date()
+        Haptics.tap()
+        if !isTravelling, !inKennel {
+            cancelBehavior()
+            if !calm, clips[CompanionMotion.pet] != nil {
+                play([CompanionMotion.pet])
+                after(.wait(duration: 2.4)) { [weak self] in
+                    self?.play(["idle"])
+                    self?.finishIdle(after: 1.5)
+                }
+            } else {
+                play(["idle_2", "idle"])
+                finishIdle(after: 3)
+            }
+        }
+        childNode(withName: "affection", recursively: false)?.removeFromParentNode()
+        let path = UIBezierPath()
+        path.move(to: CGPoint(x: 0, y: -0.04))
+        path.addCurve(to: CGPoint(x: -0.055, y: 0.025), controlPoint1: CGPoint(x: -0.025, y: -0.018), controlPoint2: CGPoint(x: -0.060, y: 0.002))
+        path.addCurve(to: CGPoint(x: 0, y: 0.038), controlPoint1: CGPoint(x: -0.05, y: 0.063), controlPoint2: CGPoint(x: -0.014, y: 0.065))
+        path.addCurve(to: CGPoint(x: 0.055, y: 0.025), controlPoint1: CGPoint(x: 0.014, y: 0.065), controlPoint2: CGPoint(x: 0.05, y: 0.063))
+        path.addCurve(to: CGPoint(x: 0, y: -0.04), controlPoint1: CGPoint(x: 0.060, y: 0.002), controlPoint2: CGPoint(x: 0.025, y: -0.018))
+        path.close()
+        let geometry = SCNShape(path: path, extrusionDepth: 0.004)
+        let material = SCNMaterial(); material.lightingModel = .constant
+        material.diffuse.contents = UIColor(red: 0.88, green: 0.40, blue: 0.34, alpha: 1)
+        geometry.materials = [material]
+        let heart = SCNNode(geometry: geometry); heart.name = "affection"
+        heart.position = SCNVector3(0,0.64,0); heart.castsShadow = false
+        heart.constraints = [SCNBillboardConstraint()]
+        addChildNode(heart)
+        let fade = SCNAction.sequence([.wait(duration: 0.6), .fadeOut(duration: 0.7)])
+        let response = calm ? fade : SCNAction.group([fade, .moveBy(x: 0, y: 0.14, z: 0, duration: 1.3)])
+        heart.runAction(.sequence([response, .removeFromParentNode()]))
+    }
+
     /// "Go to your kennel." During the day it's a nap the pet ends on its own,
     /// so it never gets stuck in there; at night it just turns in early.
     func sendToKennel() {
-        guard let bed = findBed?(self) else { Haptics.warning(); return }
+        guard !isCarried, !isRising, !isSleeping, let bed = findBed?(self) else { Haptics.warning(); return }
         Haptics.tap()
-        forcedAwake = false
+        awakeUntil = .distantPast
         commandedNap = true
-        removeAllActions()
+        // A command during a stride starts from the visible position, then
+        // finishes that cardinal segment before routing around the obstacles.
+        let actual = isTravelling ? presentation.position : position
+        cancelBehavior()
+        position = actual
         poseNode.removeAllActions()
-        headTo(bed.cell) { [weak self] in
-            self?.enterKennel(world: bed.world, yaw: bed.yaw)
+        kennelDestination = bed
+        let center = worldFor(col, row)
+        let distance = hypot(center.x - actual.x, center.z - actual.z)
+        if distance > 0.01 {
+            play(["walk"])
+            after(.move(to: center, duration: Double(distance) * kind.walkSecondsPerTile)) { [weak self] in
+                self?.goToKennel(bed)
+            }
+        } else {
+            goToKennel(bed)
         }
     }
 
     /// Lifted by the player: freeze in place and hover.
     func beginCarry() {
         isCarried = true
+        isTravelling = false
         isSleeping = false
         inKennel = false
-        removeAllActions()
+        kennelDestination = nil
+        isRising = false
+        lieStartedAt = nil
+        commandedNap = false
+        cancelBehavior()
         poseNode.removeAllActions()
         poseNode.runAction(.group([
             .move(to: SCNVector3Zero, duration: 0.2),
@@ -558,25 +728,14 @@ final class AnimalNode: SCNNode {
     /// Player tapped a sleeping pet: rouse it and keep it up for a while.
     func wake() {
         guard isSleeping else { return }
-        isSleeping = false
-        inKennel = false
-        forcedAwake = true
-        removeAllActions()
+        awakeUntil = Date().addingTimeInterval(60)
+        commandedNap = false
+        lastDayRest = Date()
+        cancelBehavior()
         poseNode.removeAllActions()
-        let up = SCNAction.group([
-            .move(to: SCNVector3Zero, duration: 0.4),
-            .rotateTo(x: 0, y: 0, z: 0, duration: 0.4, usesShortestUnitArc: true),
-            .scale(to: 1, duration: 0.4),
-        ])
-        up.timingMode = .easeOut
-        poseNode.runAction(up)
         Haptics.tap()
-        play(["idle", "rest"])
-        after(.wait(duration: 0.5)) { [weak self] in self?.behave() }
-        // Let it doze off again after a minute of being awake.
-        runAction(.sequence([.wait(duration: 60), .run { [weak self] _ in
-            Task { @MainActor [weak self] in self?.forcedAwake = false }
-        }]), forKey: "wakeWindow")
+        standUp { [weak self] in self?.behave() }
+
     }
 
     private var effectiveMoveChance: Double {
@@ -606,6 +765,7 @@ final class AnimalNode: SCNNode {
         }
         guard let start = dir else { idle(); return }
 
+        isTravelling = true
         let sprint = !calm && kind.canDash && Double.random(in: 0..<1) < 0.22
         play(sprint ? ["gallop", "run", "sprint", "walk"] : ["walk", "trot"])
         let budget = Int.random(in: sprint ? 4...9 : 3...7)
@@ -646,7 +806,7 @@ final class AnimalNode: SCNNode {
         var dur = water ? kind.swimSecondsPerTile : kind.walkSecondsPerTile
         if sprint { dur *= 0.6 }
         let target = worldFor(nc, nr)
-        let targetY: Float = water ? -0.12 : 0
+        let targetY: Float = water ? -0.12 : target.y
 
         var seq: [SCNAction] = []
         if turned {
@@ -676,9 +836,28 @@ final class AnimalNode: SCNNode {
     /// Settle on a calm idle clip (grazers sometimes eat) and hold it a good
     /// while, so the animal isn't constantly switching poses.
     private func idle() {
+        isTravelling = false
         let grazers: Set<AnimalKind> = [.deer, .cow, .horse, .alpaca]
         if grazers.contains(kind), Double.random(in: 0..<1) < 0.4 {
             play(["eat", "graze", "idle"])
+        } else if kind.usesDoghouse {
+            if !forcedAwake, Date().timeIntervalSince(lastDayRest) > 90,
+               !isWater(col, row), Double.random(in: 0..<1) < 0.18 {
+                lastDayRest = Date()
+                sleep()
+                return
+            }
+            if !calm, clips[CompanionMotion.sniff] != nil, Double.random(in: 0..<1) < 0.30 {
+                play([CompanionMotion.sniff])
+                after(.wait(duration: 3.2)) { [weak self] in
+                    self?.play(["idle"])
+                    self?.finishIdle(after: Double.random(in: 2...4))
+                }
+                return
+            }
+            // Ears, tail and head are animated by the rig; hold each choice long enough to feel calm.
+            let choices = calm ? ["idle", "idle_2_headlow"] : ["idle", "idle_2", "idle_2_headlow"]
+            play([choices.randomElement()!, "idle"])
         } else {
             play(["idle", "rest"])
         }
@@ -744,18 +923,24 @@ enum AnimalModelLoader {
 
         // Only genuinely cyclic clips loop; one-shots (death, attack, jump,
         // hit-reacts) stay single-play so they can never breakdance.
-        let cyclic: Set<String> = ["idle", "idle_2", "walk", "trot", "gallop", "run", "eating"]
+        let cyclic: Set<String> = ["idle", "idle_2", "idle_2_headlow", "walk", "trot", "gallop", "run", "eating", "companion_sleep"]
         var clips: [String: SCNAnimationPlayer] = [:]
         for anim in source.animations {
             let key = anim.name.lowercased()
             let player = anim.animationPlayer
             player.animation.repeatCount = cyclic.contains(key) ? .greatestFiniteMagnitude : 1
+            if key.hasPrefix("companion_") {
+                // Keep the last pose until the next clip begins, with no bind-pose flash.
+                player.animation.isRemovedOnCompletion = false
+                player.animation.fillsForward = true
+                player.animation.blendInDuration = key == "companion_sleep" ? 0.12 : 0.25
+            }
             container.addAnimationPlayer(player, forKey: anim.name)
             player.stop()
             clips[key] = player
         }
 
-        normalize(container, targetSize: kind.targetSize)
+        normalize(container, targetSize: kind.targetSize, useSkin: kind.usesDoghouse)
         container.eulerAngles.y = kind.assetFacingYaw
         flatten(container)   // PBR → lambert: much cheaper + matches the town
         return (container, clips)
@@ -787,10 +972,65 @@ enum AnimalModelLoader {
         }
     }
 
+    /// Evaluate skin vertices once at load time. Mesh bounds alone describe the
+    /// undeformed mesh, whose paws can be far above the skeleton's actual feet.
+    static func skinnedBounds(_ root: SCNNode) -> (min: SCNVector3, max: SCNVector3)? {
+        var low = SIMD3<Float>(repeating: .greatestFiniteMagnitude)
+        var high = SIMD3<Float>(repeating: -.greatestFiniteMagnitude)
+        var found = false
+        func values(_ source: SCNGeometrySource) -> [[Float]] {
+            source.data.withUnsafeBytes { bytes in
+                (0..<source.vectorCount).map { vertex in
+                    (0..<source.componentsPerVector).map { component in
+                        let offset = source.dataOffset + vertex * source.dataStride + component * source.bytesPerComponent
+                        guard offset + source.bytesPerComponent <= bytes.count else { return Float(0) }
+                        if source.usesFloatComponents {
+                            if source.bytesPerComponent == 4 { return bytes.loadUnaligned(fromByteOffset: offset, as: Float.self) }
+                            if source.bytesPerComponent == 8 { return Float(bytes.loadUnaligned(fromByteOffset: offset, as: Double.self)) }
+                        }
+                        switch source.bytesPerComponent {
+                        case 1: return Float(bytes.loadUnaligned(fromByteOffset: offset, as: UInt8.self))
+                        case 2: return Float(bytes.loadUnaligned(fromByteOffset: offset, as: UInt16.self))
+                        case 4: return Float(bytes.loadUnaligned(fromByteOffset: offset, as: UInt32.self))
+                        default: return 0
+                        }
+                    }
+                }
+            }
+        }
+        root.enumerateHierarchy { node, _ in
+            guard let skin = node.skinner,
+                  let source = skin.baseGeometry?.sources(for: .vertex).first,
+                  let inverse = skin.boneInverseBindTransforms,
+                  inverse.count == skin.bones.count else { return }
+            let positions = values(source), weights = values(skin.boneWeights), indices = values(skin.boneIndices)
+            guard positions.count == weights.count, positions.count == indices.count else { return }
+            let bind = simd_float4x4(skin.baseGeometryBindTransform)
+            let matrices = zip(skin.bones, inverse).map { bone, inv in
+                root.simdConvertTransform(matrix_identity_float4x4, from: bone) * simd_float4x4(inv.scnMatrix4Value) * bind
+            }
+            for i in positions.indices where positions[i].count >= 3 {
+                let v = SIMD4<Float>(positions[i][0], positions[i][1], positions[i][2], 1)
+                var p = SIMD4<Float>.zero
+                var total: Float = 0
+                for j in 0..<min(weights[i].count, indices[i].count) where weights[i][j] > 0 {
+                    let index = Int(indices[i][j])
+                    guard matrices.indices.contains(index) else { continue }
+                    p += (matrices[index] * v) * weights[i][j]; total += weights[i][j]
+                }
+                guard total > 0 else { continue }
+                let point = SIMD3(p.x,p.y,p.z) / total
+                guard point.x.isFinite, point.y.isFinite, point.z.isFinite else { continue }
+                low = simd_min(low,point); high = simd_max(high,point); found = true
+            }
+        }
+        return found ? (SCNVector3(low.x,low.y,low.z), SCNVector3(high.x,high.y,high.z)) : nil
+    }
+
     /// Scale the model so its longest horizontal side equals `targetSize` tiles,
     /// then rest its feet on y = 0. Skinned meshes report nothing through
     /// `flattenedClone`, so we union the bind-pose bounds of every geometry node.
-    private static func normalize(_ node: SCNNode, targetSize: CGFloat) {
+    private static func normalize(_ node: SCNNode, targetSize: CGFloat, useSkin: Bool = false) {
         var lo = SCNVector3(Float.greatestFiniteMagnitude, Float.greatestFiniteMagnitude, Float.greatestFiniteMagnitude)
         var hi = SCNVector3(-Float.greatestFiniteMagnitude, -Float.greatestFiniteMagnitude, -Float.greatestFiniteMagnitude)
         node.enumerateHierarchy { child, _ in
@@ -805,6 +1045,9 @@ enum AnimalModelLoader {
                     }
                 }
             }
+        }
+        if useSkin, let bounds = skinnedBounds(node) {
+            lo = bounds.min; hi = bounds.max
         }
         let footprint = CGFloat(max(hi.x - lo.x, hi.z - lo.z))
         guard footprint.isFinite, footprint > 0.0001 else {
