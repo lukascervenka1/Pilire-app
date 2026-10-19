@@ -88,7 +88,7 @@ enum SeasonalEvent: String, CaseIterable, Identifiable {
 // MARK: - Build menu categories
 
 enum BuildCategory: String, CaseIterable, Identifiable {
-    case all, housing, countryside, crafts, civic, landmarks, decorations, seasonal
+    case all, housing, countryside, crafts, civic, landmarks, decorations, animals, seasonal
     var id: String { rawValue }
 
     @MainActor
@@ -101,6 +101,7 @@ enum BuildCategory: String, CaseIterable, Identifiable {
         case .civic:       L(T(cs: "Obec", sk: "Obec", en: "Civic"))
         case .landmarks:   L(T(cs: "Dominanty", sk: "Dominanty", en: "Landmarks"))
         case .decorations: L(T(cs: "Dekorace", sk: "Dekorácie", en: "Decorations"))
+        case .animals:     L(T(cs: "Zvířata", sk: "Zvieratá", en: "Animals"))
         case .seasonal:    L(T(cs: "Sezónní", sk: "Sezónne", en: "Seasonal"))
         }
     }
@@ -114,6 +115,7 @@ enum BuildCategory: String, CaseIterable, Identifiable {
         case .civic:       "building.columns.fill"
         case .landmarks:   "crown.fill"
         case .decorations: "tree.fill"
+        case .animals:     "pawprint.fill"
         case .seasonal:    "sparkles"
         }
     }

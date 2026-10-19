@@ -199,6 +199,12 @@ enum S {
         static let until = T(cs: "V nabídce do %@", sk: "V ponuke do %@", en: "Available until %@")
         static let build = T(cs: "Postavit", sk: "Postaviť", en: "Build")
         static let place = T(cs: "Umístit", sk: "Umiestniť", en: "Place")
+        static let adopt = T(cs: "Pořídit", sk: "Zaobstarať", en: "Adopt")
+        static let adoptQuestion = T(cs: "Pořídit zvíře „%@“?", sk: "Zaobstarať zviera „%@“?", en: "Adopt the %@?")
+        static let adoptFor = T(cs: "Pořídit za %d mincí", sk: "Zaobstarať za %d mincí", en: "Adopt for %d coins")
+        static let adoptNote = T(cs: "Hned se objeví na ostrově a můžeš ho pojmenovat v inventáři.",
+                                 sk: "Hneď sa objaví na ostrove a môžeš ho pomenovať v inventári.",
+                                 en: "It turns up on the island right away; you can name it in the inventory.")
         static let shortageHint = T(cs: "Zobrazí, co ještě chybí.", sk: "Zobrazí, čo ešte chýba.", en: "Shows what you still need.")
         static let shortageFor = T(cs: "Pro „%@“ ještě potřebuješ:", sk: "Pre „%@“ ešte potrebuješ:", en: "For “%@”, you still need:")
         static let missingAmount = T(cs: "Chybí %d", sk: "Chýba %d", en: "Need %d more")

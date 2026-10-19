@@ -204,7 +204,13 @@ struct ContentView: View {
                     scene.isPlacementMode = true
                     tab = 0
                 },
-                onSelectDecoration: { item in beginPlacement(item) }
+                onSelectDecoration: { item in beginPlacement(item) },
+                onAdoptAnimal: { kind in
+                    // Insert only — syncAnimals owns node creation, as with the shop.
+                    ctx.insert(OwnedAnimal(kind: kind))
+                    ctx.saveChanges()
+                    tab = 0
+                }
             )
         }
         .sheet(item: $payout) { p in

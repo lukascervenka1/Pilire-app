@@ -3,11 +3,13 @@ import SwiftUI
 enum CatalogShortageTarget: Identifiable {
     case building(BuildingType)
     case decoration(DecorationItem)
+    case animal(AnimalKind)
 
     var id: String {
         switch self {
         case .building(let type): "building-\(type.rawValue)"
         case .decoration(let item): "decoration-\(item.rawValue)"
+        case .animal(let kind): "animal-\(kind.rawValue)"
         }
     }
 
@@ -15,13 +17,14 @@ enum CatalogShortageTarget: Identifiable {
         switch self {
         case .building(let type): type.displayName
         case .decoration(let item): item.displayName
+        case .animal(let kind): kind.displayName
         }
     }
 
     @MainActor var title: String {
         switch self {
         case .building: L(S.build.needMaterials)
-        case .decoration: L(S.build.needCoins)
+        case .decoration, .animal: L(S.build.needCoins)
         }
     }
 
@@ -39,10 +42,16 @@ enum CatalogShortageTarget: Identifiable {
                     available: available, required: required)
             }
         case .decoration(let item):
-            guard settings.coinBalance < item.cost else { return [] }
-            return [CatalogMissingResource(id: "coins", name: L(S.common.coins), symbol: "seal.fill",
-                color: CatalogStyle.coin, available: settings.coinBalance, required: item.cost)]
+            return Self.coins(item.cost, in: settings)
+        case .animal(let kind):
+            return Self.coins(kind.cost, in: settings)
         }
+    }
+
+    @MainActor private static func coins(_ cost: Int, in settings: UserSettings) -> [CatalogMissingResource] {
+        guard settings.coinBalance < cost else { return [] }
+        return [CatalogMissingResource(id: "coins", name: L(S.common.coins), symbol: "seal.fill",
+            color: CatalogStyle.coin, available: settings.coinBalance, required: cost)]
     }
 }
 

@@ -140,7 +140,9 @@ struct CatalogPrice: View {
 struct CatalogProductCard<Price: View>: View {
     let name: String
     let subtitle: String
-    let image: UIImage
+    let image: UIImage?
+    var placeholder = "pawprint.fill"     // shown while an async thumbnail renders
+    var subtitleLines: Int? = nil         // reserve room so a row of cards lines up
     let event: SeasonalEvent?
     let affordable: Bool
     let action: String
@@ -152,9 +154,15 @@ struct CatalogProductCard<Price: View>: View {
             ZStack(alignment: .topTrailing) {
                 RoundedRectangle(cornerRadius: 14)
                     .fill(event == nil ? Theme.creamBottom.opacity(0.55) : CatalogStyle.eventAccent.opacity(0.20))
-                Image(uiImage: image).resizable().interpolation(.high).scaledToFit()
-                    .padding(8).frame(maxWidth: .infinity).frame(height: 126)
-                    .accessibilityHidden(true)
+                Group {
+                    if let image {
+                        Image(uiImage: image).resizable().interpolation(.high).scaledToFit()
+                    } else {
+                        Image(systemName: placeholder).font(.largeTitle).foregroundStyle(Theme.creamLabel.opacity(0.5))
+                    }
+                }
+                .padding(8).frame(maxWidth: .infinity).frame(height: 126)
+                .accessibilityHidden(true)
                 if let event {
                     Image(systemName: event.symbolName)
                         .font(.caption).foregroundStyle(CatalogStyle.ink)
@@ -168,7 +176,9 @@ struct CatalogProductCard<Price: View>: View {
                     .foregroundStyle(CatalogStyle.ink).lineLimit(2, reservesSpace: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text(subtitle).font(.system(.caption, design: .rounded))
-                    .foregroundStyle(Theme.creamLabel).fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(Theme.creamLabel)
+                    .lineLimit(subtitleLines ?? 10, reservesSpace: subtitleLines != nil)
+                    .fixedSize(horizontal: false, vertical: true)
                 price().frame(minHeight: 28, alignment: .leading)
                 Divider().overlay(Theme.creamLabel.opacity(0.08))
                 HStack(spacing: 4) {

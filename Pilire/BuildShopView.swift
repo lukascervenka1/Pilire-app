@@ -112,10 +112,12 @@ struct BuildShopView: View {
     var onExpand: () -> Void = {}
     var onSelect: (BuildingType) -> Void
     var onSelectDecoration: (DecorationItem) -> Void = { _ in }
+    var onAdoptAnimal: (AnimalKind) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
     @State private var confirmExpand = false
     @State private var shortage: CatalogShortageTarget?
     @State private var category: BuildCategory = .all
+    @State private var adopting: AnimalKind?
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -125,11 +127,12 @@ struct BuildShopView: View {
     }
     private let event = SeasonalEvent.current()
 
-    /// One card in the catalogue: a building (paid in materials) or a
-    /// decoration (paid in coins).
+    /// One card in the catalogue: a building (paid in materials), or a
+    /// decoration or an animal (paid in coins).
     private enum Entry: Hashable {
         case building(BuildingType)
         case decoration(DecorationItem)
+        case animal(AnimalKind)
     }
 
     private var entries: [Entry] {
@@ -138,8 +141,11 @@ struct BuildShopView: View {
         switch category {
         case .all:
             return buildings.map(Entry.building) + decorations.map(Entry.decoration)
+                 + AnimalKind.allCases.map(Entry.animal)
         case .decorations:
             return decorations.map(Entry.decoration)
+        case .animals:
+            return AnimalKind.allCases.map(Entry.animal)
         case .seasonal:
             return buildings.filter { $0.event != nil }.map(Entry.building)
                  + decorations.filter { $0.event != nil }.map(Entry.decoration)
@@ -189,6 +195,12 @@ struct BuildShopView: View {
                                         }) {
                                             Haptics.tap(); onSelectDecoration(item); dismiss()
                                         }
+                                    case .animal(let kind):
+                                        AnimalCard(kind: kind, settings: settings, onUnavailable: {
+                                            Haptics.tap(); shortage = .animal(kind)
+                                        }) {
+                                            Haptics.tap(); adopting = kind
+                                        }
                                     }
                                 }
                             }
@@ -230,6 +242,24 @@ struct BuildShopView: View {
             CatalogShortageSheet(target: target, settings: settings)
                 .environment(\.dynamicTypeSize, dynamicTypeSize)
         }
+        // An animal is bought outright rather than placed, so it gets one
+        // explicit confirmation before the coins go.
+        .confirmationDialog(adopting.map { L(S.build.adoptQuestion, $0.displayName) } ?? "",
+                            isPresented: Binding(get: { adopting != nil }, set: { if !$0 { adopting = nil } }),
+                            titleVisibility: .visible, presenting: adopting) { kind in
+            Button(L(S.build.adoptFor, kind.cost)) { adopt(kind) }
+            Button(L(S.common.cancel), role: .cancel) {}
+        } message: { _ in
+            Text(L(S.build.adoptNote))
+        }
+    }
+
+    private func adopt(_ kind: AnimalKind) {
+        guard settings.coinBalance >= kind.cost else { shortage = .animal(kind); return }
+        settings.coinBalance -= kind.cost
+        Haptics.success()
+        onAdoptAnimal(kind)
+        dismiss()
     }
 
     private func selectCategory(_ value: BuildCategory) {
@@ -373,6 +403,33 @@ private struct DecorationCard: View {
         .buttonStyle(CatalogPressStyle())
         .accessibilityHint(affordable ? "" : L(S.build.shortageHint))
         .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: - Animal card (bought with coins, appears on the island straight away)
+
+private struct AnimalCard: View {
+    let kind: AnimalKind
+    let settings: UserSettings
+    let onUnavailable: () -> Void
+    let onBuy: () -> Void
+    @State private var image: UIImage?
+    private var affordable: Bool { settings.coinBalance >= kind.cost }
+
+    var body: some View {
+        Button(action: { if affordable { onBuy() } else { onUnavailable() } }) {
+            CatalogProductCard(name: kind.displayName, subtitle: kind.shopDescription,
+                               image: image, placeholder: kind.symbolName, subtitleLines: 2, event: nil,
+                               affordable: affordable, action: L(S.build.adopt),
+                               unavailable: L(S.build.needCoins)) {
+                CatalogPrice(symbol: "seal.fill", color: CatalogStyle.coin, amount: kind.cost,
+                             enough: affordable, label: L(S.common.coins))
+            }
+        }
+        .buttonStyle(CatalogPressStyle())
+        .accessibilityHint(affordable ? "" : L(S.build.shortageHint))
+        .accessibilityElement(children: .combine)
+        .task { image = await AnimalPreview.image(for: kind) }
     }
 }
 
