@@ -42,6 +42,13 @@ enum Theme {
     static var accentGradient: LinearGradient {
         LinearGradient(colors: [accentTop, accentBottom], startPoint: .top, endPoint: .bottom)
     }
+
+    // Calendar and its wooden weekly chest.
+    static let calendarSage = Color(red: 0.74, green: 0.85, blue: 0.73)
+    static let calendarGreen = Color(red: 0.14, green: 0.27, blue: 0.18)
+    static let chestButtonLabel = Color(red: 0.22, green: 0.16, blue: 0.08)
+    static let chestRare = Color(red: 0.20, green: 0.40, blue: 0.56)
+    static let chestGold = Color(red: 0.48, green: 0.34, blue: 0.09)
 }
 
 // MARK: - Resource info (long-press a HUD chip → small bottom sheet)

@@ -9,7 +9,8 @@ import json
 from pathlib import Path
 import numpy as np
 
-NAMES = ['Companion_LieDown', 'Companion_Sleep', 'Companion_Rise', 'Companion_Pet', 'Companion_Sniff']
+NAMES = ['Companion_LieDown', 'Companion_Sleep', 'Companion_Rise', 'Companion_Pet', 'Companion_Sniff',
+         'Companion_Eat', 'Companion_Fed']
 
 def rotation(q):
     x,y,z,w=q
@@ -32,6 +33,10 @@ def axis_y(a):
     c,s=np.cos(a),np.sin(a)
     return np.array([[c,0,s],[0,1,0],[-s,0,c]])
 
+def axis_z(a):
+    c,s=np.cos(a),np.sin(a)
+    return np.array([[c,-s,0],[s,c,0],[0,0,1]])
+
 def smooth(x):
     x=np.clip(x,0,1);return x*x*(3-2*x)
 
@@ -50,10 +55,10 @@ def elbow(start,end,l1,l2,backwards=True):
     return start+direction*along+side*height
 
 class Rig:
-    def __init__(self,path):
+    def __init__(self,path,reset_generated=True):
         self.path=path;self.d=json.loads(path.read_text());d=self.d
         old=d.get('extras',{}).get('companionAuthoring')
-        if old:
+        if old and reset_generated:
             for key,count in old.items():d[key]=d[key][:count]
         self.counts={key:len(d[key]) for key in ['buffers','bufferViews','accessors','animations']}
         self.buffers=[base64.b64decode(b['uri'].split(',')[1]) for b in d['buffers']]
@@ -88,7 +93,7 @@ class Rig:
                 mats=np.array([w[j]@inv for j,inv in zip(skin['joints'],ib)]);js=self.acc(a['JOINTS_0']).astype(int);ws=self.acc(a['WEIGHTS_0'])
                 out.append(sum(np.einsum('nij,nj->ni',mats[js[:,k]],p4)*ws[:,k,None] for k in range(4))[:,:3])
         return np.concatenate(out)
-    def pose(self,lower=0,head=0,breath=0,wag=0,tilt=0):
+    def pose(self,lower=0,head=0,breath=0,wag=0,tilt=0,skull=None,roll=0):
         t=self.t.copy();q=self.q.copy();idx=self.names
         def pos(name):return self.world(t,q)[idx[name]][:3,3]
         def orient(name,r):
@@ -124,7 +129,7 @@ class Rig:
         # Counter-rotate the complete skull so lowering never folds the ears
         # through the forehead or stretches the face.
         i=idx['Neck3']
-        orient('Neck3',axis_x(.22*head)@axis_y(tilt)@self.bind[i][:3,:3])
+        orient('Neck3',axis_x(.22*head if skull is None else skull)@axis_y(tilt)@axis_z(roll)@self.bind[i][:3,:3])
         i=idx['Tail1'];orient('Tail1',axis_y(wag)@axis_x(-.65*lower)@self.bind[i][:3,:3])
         return t,q
     def accessor(self,values,typ):
@@ -163,6 +168,24 @@ def author(r):
     r.clip(NAMES[2],1.8,lambda t:r.pose(lower=1-smooth((t-.35)/1.45),head=1-smooth(t/.9)))
     r.clip(NAMES[3],2.4,lambda t:r.pose(wag=.30*np.sin(t*2*np.pi*2.5)*np.sin(np.pi*t/2.4)**2,tilt=.13*np.sin(np.pi*t/2.4)**2))
     r.clip(NAMES[4],3.2,lambda t:r.pose(head=.80*np.sin(np.pi*t/3.2)**2,tilt=.10*np.sin(t*2*np.pi/1.6)*np.sin(np.pi*t/3.2)**2))
+    def eating(t):
+        # Keep the back and all four paws supporting the dog. Only a small
+        # crouch and the neck bring the muzzle to the low bowl; no lying pose.
+        engaged=smooth(t/.95)*(1-smooth((t-5.35)/1.05))
+        chewing=np.sin(2*np.pi*3.1*t)*engaged
+        crouch=.46 if r.path.stem == 'husky' else .38
+        return r.pose(lower=crouch*engaged,head=1.35*engaged+.018*chewing,
+                      skull=1.42*engaged+.025*chewing,
+                      breath=.004*engaged*np.sin(2*np.pi*t/2.0),
+                      wag=.055*engaged*np.sin(2*np.pi*1.4*t),
+                      tilt=.018*engaged*np.sin(2*np.pi*t/1.6))
+    r.clip(NAMES[5],6.4,eating)
+    def fed(t):
+        response=smooth(t/.30)*(1-smooth((t-2.25)/.55))
+        return r.pose(wag=.48*np.sin(t*2*np.pi*2.5)*response,
+                      tilt=.15*response,roll=.08*response,
+                      breath=.012*np.sin(np.pi*t/2.8)**2)
+    r.clip(NAMES[6],2.8,fed)
     r.save()
 
 if __name__=='__main__':

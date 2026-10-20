@@ -11,6 +11,11 @@ final class Habit {
     var createdDate: Date = Date.now
     var reminderMinutes: Int? = nil   // minutes from midnight; nil = no reminder
     var remindersID: String? = nil    // EKReminder id, when exported to Apple Reminders
+    /// When in the day the habit is meant to happen; the day's pillar carries it.
+    /// While set, a reminder (if any) fires at this same time.
+    var timeMinutes: Int? = nil
+    /// Position in the user's own ordering of habits (drag to change).
+    var sortOrder: Int = 0
 
     init(text: String, weekdayIndices: [Int] = [], reminderMinutes: Int? = nil) {
         self.text = text
@@ -21,6 +26,30 @@ final class Habit {
     var reminderLabel: String? {
         guard let m = reminderMinutes else { return nil }
         return String(format: "%d:%02d", m / 60, m % 60)
+    }
+
+    var timeLabel: String? {
+        guard let m = timeMinutes else { return nil }
+        return String(format: "%d:%02d", m / 60, m % 60)
+    }
+
+    /// Set or clear the habit's time, keeping a reminder (if on) at that time.
+    func setTime(_ minutes: Int?) {
+        timeMinutes = minutes
+        if reminderMinutes != nil, let minutes { reminderMinutes = minutes }
+    }
+
+    /// That day's moment for the habit, if it has a time.
+    func scheduledDate(on day: Date) -> Date? {
+        guard let m = timeMinutes else { return nil }
+        return Calendar.current.date(bySettingHour: m / 60, minute: m % 60, second: 0, of: day)
+    }
+
+    /// Persist a new order after a drag.
+    static func reorder(_ habits: [Habit], from source: IndexSet, to destination: Int) {
+        var list = habits
+        list.move(fromOffsets: source, toOffset: destination)
+        for (i, h) in list.enumerated() { h.sortOrder = i }
     }
 
     static func minutes(from date: Date) -> Int {
@@ -55,26 +84,36 @@ final class Habit {
 // MARK: - Habits management sheet
 
 struct HabitsView: View {
+    /// Opened to add one: put the cursor in the new-habit field right away.
+    var focusNew = false
+
     @Environment(\.modelContext) private var ctx
     @Environment(\.dismiss) private var dismiss
-    @Query(sort: \Habit.createdDate) private var habits: [Habit]
+    @Query(sort: [SortDescriptor(\Habit.sortOrder), SortDescriptor(\Habit.createdDate)])
+    private var habits: [Habit]
 
     @State private var newText = ""
     @State private var newDays: Set<Int> = []
+    @State private var newAtTime = false
     @State private var newReminder = false
     @State private var newTime = Habit.date(fromMinutes: 8 * 60)
     @State private var editHabit: Habit?
+    @FocusState private var newFieldFocused: Bool
 
     var body: some View {
         NavigationStack {
             List {
+                // The form sits first, so adding one more never means scrolling
+                // past every habit you already have.
+                newHabitSection
+
                 if habits.isEmpty {
                     Section {
                         Text(L(S.habits.intro))
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
                 } else {
-                    Section(L(S.habits.mine)) {
+                    Section {
                         ForEach(habits) { habit in
                             Button {
                                 editHabit = habit
@@ -88,7 +127,9 @@ struct HabitsView: View {
                                             .foregroundStyle(habit.isActive ? .primary : .secondary)
                                         HStack(spacing: 6) {
                                             Text(habit.daysSummary)
-                                            if let t = habit.reminderLabel {
+                                            if let t = habit.timeLabel {
+                                                Label(t, systemImage: habit.reminderMinutes != nil ? "bell" : "clock")
+                                            } else if let t = habit.reminderLabel {
                                                 Label(t, systemImage: "bell")
                                             }
                                         }
@@ -108,6 +149,10 @@ struct HabitsView: View {
                             }
                             .buttonStyle(.plain)
                         }
+                        .onMove { from, to in
+                            Habit.reorder(habits, from: from, to: to)
+                            ctx.saveChanges()
+                        }
                         .onDelete { offsets in
                             for i in offsets {
                                 if let id = habits[i].remindersID {
@@ -117,58 +162,11 @@ struct HabitsView: View {
                             }
                             ctx.saveChanges()
                         }
+                    } header: {
+                        Text(L(S.habits.mine))
+                    } footer: {
+                        Text(L(S.daily.reorderHint))
                     }
-                }
-
-                Section {
-                    TextField(L(S.habits.newPlaceholder), text: $newText)
-                        .submitLabel(.done)
-                        .onSubmit(add)
-
-                    // Weekday picker — none selected = daily
-                    HStack(spacing: 6) {
-                        ForEach(0..<7, id: \.self) { i in
-                            let on = newDays.contains(i)
-                            Button {
-                                if on { newDays.remove(i) } else { newDays.insert(i) }
-                            } label: {
-                                Text(Habit.dayLabels[i])
-                                    .font(.caption2.bold())
-                                    .frame(width: 34, height: 34)
-                                    .background(on ? Color.indigo : Color.secondary.opacity(0.12),
-                                                in: Circle())
-                                    .foregroundStyle(on ? .white : .primary)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.vertical, 2)
-
-                    if newDays.isEmpty {
-                        Text(L(S.habits.noDaysNote))
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-
-                    Toggle(isOn: $newReminder) {
-                        Label(L(S.habits.remind), systemImage: "bell")
-                            .font(.subheadline)
-                    }
-                    .tint(.indigo)
-                    if newReminder {
-                        DatePicker(L(S.habits.atWhatTime), selection: $newTime, displayedComponents: .hourAndMinute)
-                            .font(.subheadline)
-                    }
-
-                    Button(action: add) {
-                        Label(L(S.habits.addHabit), systemImage: "plus.circle.fill")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.indigo)
-                    }
-                    .disabled(newText.trimmingCharacters(in: .whitespaces).isEmpty)
-                } header: {
-                    Text(L(S.habits.newHabit))
-                } footer: {
-                    Text(L(S.habits.newFooter))
                 }
             }
             .navigationTitle(L(S.habits.title))
@@ -184,19 +182,105 @@ struct HabitsView: View {
             .sheet(item: $editHabit) { habit in
                 HabitEditSheet(habit: habit)
             }
+            .onAppear {
+                if focusNew || habits.isEmpty { newFieldFocused = true }
+            }
+        }
+    }
+
+    private var newHabitSection: some View {
+        Section {
+            HStack {
+                TextField(L(S.habits.newPlaceholder), text: $newText)
+                    .focused($newFieldFocused)
+                    .submitLabel(.done)
+                    .onSubmit(add)
+                if !newText.trimmingCharacters(in: .whitespaces).isEmpty {
+                    Button(action: add) {
+                        Image(systemName: "plus.circle.fill").foregroundStyle(.indigo)
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(L(S.habits.addHabit))
+                }
+            }
+
+            // Weekday picker — none selected = daily
+            HabitDayPicker(isOn: { newDays.contains($0) }, toggle: { i in
+                if newDays.contains(i) { newDays.remove(i) } else { newDays.insert(i) }
+            })
+
+            Toggle(isOn: $newAtTime.animation()) {
+                Label(L(S.habits.atSetTime), systemImage: "clock")
+                    .font(.subheadline)
+            }
+            .tint(.indigo)
+            if newAtTime {
+                DatePicker(L(S.habits.atWhatTime), selection: $newTime, displayedComponents: .hourAndMinute)
+                    .font(.subheadline)
+            }
+
+            Toggle(isOn: $newReminder.animation()) {
+                Label(newAtTime ? L(S.habits.remindAtTime) : L(S.habits.remind), systemImage: "bell")
+                    .font(.subheadline)
+            }
+            .tint(.indigo)
+            if newReminder && !newAtTime {
+                DatePicker(L(S.habits.atWhatTime), selection: $newTime, displayedComponents: .hourAndMinute)
+                    .font(.subheadline)
+            }
+
+            Button(action: add) {
+                Label(L(S.habits.addHabit), systemImage: "plus.circle.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.indigo)
+            }
+            .disabled(newText.trimmingCharacters(in: .whitespaces).isEmpty)
+        } header: {
+            Text(L(S.habits.newHabit))
+        } footer: {
+            Text(newDays.isEmpty ? L(S.habits.noDaysNote) + " " + L(S.habits.newFooter) : L(S.habits.newFooter))
         }
     }
 
     private func add() {
         let t = newText.trimmingCharacters(in: .whitespaces)
         guard !t.isEmpty else { return }
-        ctx.insert(Habit(text: t, weekdayIndices: Array(newDays),
-                         reminderMinutes: newReminder ? Habit.minutes(from: newTime) : nil))
+        let minutes = Habit.minutes(from: newTime)
+        let habit = Habit(text: t, weekdayIndices: Array(newDays),
+                          reminderMinutes: newReminder ? minutes : nil)
+        habit.timeMinutes = newAtTime ? minutes : nil
+        habit.sortOrder = (habits.map(\.sortOrder).max() ?? -1) + 1
+        ctx.insert(habit)
         ctx.saveChanges()
         Haptics.tap()
+        // Ready for the next one straight away; the day choice carries over.
         newText = ""
-        newDays = []
-        newReminder = false
+        newFieldFocused = true
+    }
+}
+
+/// Seven round weekday toggles, Monday first.
+struct HabitDayPicker: View {
+    let isOn: (Int) -> Bool
+    let toggle: (Int) -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(0..<7, id: \.self) { i in
+                let on = isOn(i)
+                Button { toggle(i) } label: {
+                    Text(Habit.dayLabels[i])
+                        .font(.caption2.bold())
+                        .frame(width: 34, height: 34)
+                        .background(on ? Color.indigo : Color.secondary.opacity(0.12), in: Circle())
+                        .foregroundStyle(on ? .white : .primary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+        .padding(.vertical, 2)
     }
 }
 
@@ -216,27 +300,13 @@ struct HabitEditSheet: View {
                 Section(L(S.habits.habitSection)) {
                     TextField(L(S.habits.name), text: $habit.text)
 
-                    HStack(spacing: 6) {
-                        ForEach(0..<7, id: \.self) { i in
-                            let on = habit.weekdayIndices.contains(i)
-                            Button {
-                                if on {
-                                    habit.weekdayIndices.removeAll { $0 == i }
-                                } else {
-                                    habit.weekdayIndices.append(i)
-                                }
-                            } label: {
-                                Text(Habit.dayLabels[i])
-                                    .font(.caption2.bold())
-                                    .frame(width: 34, height: 34)
-                                    .background(on ? Color.indigo : Color.secondary.opacity(0.12),
-                                                in: Circle())
-                                    .foregroundStyle(on ? .white : .primary)
-                            }
-                            .buttonStyle(.plain)
+                    HabitDayPicker(isOn: { habit.weekdayIndices.contains($0) }, toggle: { i in
+                        if habit.weekdayIndices.contains(i) {
+                            habit.weekdayIndices.removeAll { $0 == i }
+                        } else {
+                            habit.weekdayIndices.append(i)
                         }
-                    }
-                    .padding(.vertical, 2)
+                    })
 
                     if habit.weekdayIndices.isEmpty {
                         Text(L(S.habits.noDaysNote))
@@ -244,16 +314,39 @@ struct HabitEditSheet: View {
                     }
                 }
 
-                Section(L(S.habits.reminderSection)) {
+                Section {
                     Toggle(isOn: Binding(
-                        get: { habit.reminderMinutes != nil },
-                        set: { habit.reminderMinutes = $0 ? 8 * 60 : nil }
-                    )) {
-                        Label(L(S.habits.remind), systemImage: "bell")
+                        get: { habit.timeMinutes != nil },
+                        set: { habit.setTime($0 ? (habit.reminderMinutes ?? 8 * 60) : nil) }
+                    ).animation()) {
+                        Label(L(S.habits.atSetTime), systemImage: "clock")
                     }
                     .tint(.indigo)
 
-                    if habit.reminderMinutes != nil {
+                    if habit.timeMinutes != nil {
+                        DatePicker(L(S.habits.atWhatTime), selection: Binding(
+                            get: { Habit.date(fromMinutes: habit.timeMinutes ?? 8 * 60) },
+                            set: { habit.setTime(Habit.minutes(from: $0)) }
+                        ), displayedComponents: .hourAndMinute)
+                    }
+                } header: {
+                    Text(L(S.habits.whenSection))
+                } footer: {
+                    Text(L(S.habits.timeFooter))
+                }
+
+                Section(L(S.habits.reminderSection)) {
+                    Toggle(isOn: Binding(
+                        get: { habit.reminderMinutes != nil },
+                        set: { habit.reminderMinutes = $0 ? (habit.timeMinutes ?? 8 * 60) : nil }
+                    ).animation()) {
+                        Label(habit.timeMinutes != nil ? L(S.habits.remindAtTime) : L(S.habits.remind),
+                              systemImage: "bell")
+                    }
+                    .tint(.indigo)
+
+                    // With a set time the reminder simply follows it.
+                    if habit.reminderMinutes != nil, habit.timeMinutes == nil {
                         DatePicker(L(S.habits.atWhatTime), selection: Binding(
                             get: { Habit.date(fromMinutes: habit.reminderMinutes ?? 8 * 60) },
                             set: { habit.reminderMinutes = Habit.minutes(from: $0) }

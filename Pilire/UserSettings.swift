@@ -21,6 +21,9 @@ final class UserSettings {
 
     // Weekly chest — keys ("yyyy-MM-dd" of week start) of already claimed weeks
     var claimedWeekKeys: [String] = []
+    /// Optional additions allow existing stores to migrate without resetting reward history.
+    var weeklyChestFirstWeekday: Int? = nil
+    var pendingWeeklyChestData: Data? = nil
 
     // Badges the player has already been shown, by stable id. Which badges are
     // *earned* is derived from the real data every time, so this list only
@@ -194,24 +197,34 @@ final class UserSettings {
 
 // MARK: - Weekly chest reward
 
-struct ChestReward: Identifiable {
-    enum Rarity {
+struct ChestReward: Identifiable, Codable {
+    enum Rarity: String, Codable {
         case common, rare, epic
         var title: String {
             switch self {
-            case .common: L(S.calendar.chestOpened)
-            case .rare:   L(S.calendar.chestRare)
-            case .epic:   L(S.calendar.chestEpic)
+            case .common: L(S.calendar.commonReward)
+            case .rare:   L(S.calendar.rareReward)
+            case .epic:   L(S.calendar.epicReward)
             }
         }
     }
 
-    let id = UUID()
+    let id: UUID
     var rarity: Rarity = .common
     var coins: Int = 0
     var wood: Int = 0
     var brick: Int = 0
     var steel: Int = 0
+
+    init(id: UUID = UUID(), rarity: Rarity = .common, coins: Int = 0,
+         wood: Int = 0, brick: Int = 0, steel: Int = 0) {
+        self.id = id
+        self.rarity = rarity
+        self.coins = coins
+        self.wood = wood
+        self.brick = brick
+        self.steel = steel
+    }
 
     /// Human-readable reward line, e.g. "60 mincí + 3 cihly".
     var label: String {

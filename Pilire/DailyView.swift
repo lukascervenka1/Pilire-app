@@ -4,16 +4,24 @@ import SwiftData
 struct DailyView: View {
     @Environment(\.modelContext) private var ctx
     @Query(sort: \DayRecord.date, order: .reverse) private var records: [DayRecord]
-    @Query(sort: \Habit.createdDate) private var habits: [Habit]
+    @Query(sort: [SortDescriptor(\Habit.sortOrder), SortDescriptor(\Habit.createdDate)])
+    private var habits: [Habit]
     @State private var today: DayRecord?
     @State private var newText = ""
     @State private var lastEarned: Int?
     @State private var showSettings = false
     @State private var showPool = false
     @State private var showHabits = false
+    @State private var addingHabit = false
     @State private var editHabit: Habit?
-    @State private var withTime = false
+    /// The "when" panel under the add field: a day (today or later) and a time.
+    @State private var planOpen = false
+    @State private var planDate = Calendar.current.startOfDay(for: .now)
+    @State private var planWithTime = true
     @State private var newTime = Self.nextFullHour()
+    @State private var notice: String?
+    /// Holding a pillar opens its menu, so reordering gets its own mode with handles.
+    @State private var reorderingPillars = false
     @State private var timeEdit: TimeEdit?
     @State private var pillarEdit: PillarEdit?
     @FocusState private var focusedInput: PillarInput?
@@ -63,9 +71,9 @@ struct DailyView: View {
                     }
                     habitsSection(day)
                     // Once the day is closed there's nowhere left to put a
-                    // thought — so let it land on tomorrow instead.
-                    if day.isCompleted || !tomorrowPillars.isEmpty {
-                        tomorrowSection
+                    // thought — so it can still land on tomorrow from here.
+                    if day.isCompleted || !plannedRecords.isEmpty {
+                        plannedSection(day)
                     }
                     if !day.pillars.isEmpty {
                         closeDaySection(day)
@@ -80,6 +88,7 @@ struct DailyView: View {
                 .contentMargins(.bottom, focusedInput == nil ? (tutorial.current == nil ? 96 : 220) : 24,
                                 for: .scrollContent)
                 .scrollDismissesKeyboard(.interactively)
+                .environment(\.editMode, .constant(reorderingPillars ? .active : .inactive))
                 .background(Theme.creamGradient.ignoresSafeArea())
                 .navigationTitle(L(S.daily.title))
                 .toolbar {
@@ -94,7 +103,7 @@ struct DailyView: View {
                     fillHabits(into: day)
                     syncHabitReminders(day)
                 }) {
-                    HabitsView()
+                    HabitsView(focusNew: addingHabit)
                 }
                 .sheet(item: $editHabit, onDismiss: {
                     fillHabits(into: day)
@@ -118,6 +127,7 @@ struct DailyView: View {
                     }
                 }
                 .overlay(alignment: .top) { coinToast }
+                .overlay(alignment: .top) { noticeToast }
             } else {
                 ProgressView().navigationTitle(L(S.daily.title))
             }
@@ -169,7 +179,7 @@ struct DailyView: View {
                     .font(.subheadline).foregroundStyle(.secondary)
             }
             ForEach(day.pillars.sorted(by: { $0.order < $1.order })) { p in
-                PillarRow(pillar: p) { toggle(id: p.id, in: day) }
+                PillarRow(pillar: p) { if !reorderingPillars { toggle(id: p.id, in: day) } }
                     .swipeActions(edge: .leading) {
                         Button {
                             pillarEdit = PillarEdit(id: p.id, text: p.text)
@@ -177,6 +187,16 @@ struct DailyView: View {
                             Label(L(S.common.edit), systemImage: "pencil")
                         }
                         .tint(.orange)
+                    }
+                    // Custom swipe actions replace the list's own delete, so
+                    // removing a pillar has to be offered here explicitly.
+                    .swipeActions(edge: .trailing) {
+                        if !day.isCompleted {
+                            Button(role: .destructive) { delete(p, from: day) } label: {
+                                Label(p.isHabit ? L(S.daily.skipToday) : L(S.common.delete),
+                                      systemImage: p.isHabit ? "forward.end" : "trash")
+                            }
+                        }
                     }
                     .contextMenu {
                         Button {
@@ -210,14 +230,34 @@ struct DailyView: View {
                                 Label(L(S.daily.clearTime), systemImage: "clock.badge.xmark")
                             }
                         }
+                        if !day.isCompleted {
+                            Button(role: .destructive) { delete(p, from: day) } label: {
+                                Label(p.isHabit ? L(S.daily.skipToday) : L(S.common.delete),
+                                      systemImage: p.isHabit ? "forward.end" : "trash")
+                            }
+                        }
                     }
             }
-            .onDelete { remove($0, from: day) }
+            .onMove(perform: day.isCompleted ? nil : { from, to in move(from, to, in: day) })
         } header: {
-            Text(L(S.daily.blocksHeader))
-                .font(.system(.subheadline, design: .rounded).weight(.bold))
-                .foregroundStyle(Theme.creamLabel)
-                .textCase(nil)
+            HStack {
+                Text(L(S.daily.blocksHeader))
+                    .font(.system(.subheadline, design: .rounded).weight(.bold))
+                    .foregroundStyle(Theme.creamLabel)
+                Spacer()
+                if (day.pillars.count > 1 && !day.isCompleted) || reorderingPillars {
+                    Button {
+                        withAnimation { reorderingPillars.toggle() }
+                    } label: {
+                        Label(reorderingPillars ? L(S.common.done) : L(S.daily.reorder),
+                              systemImage: reorderingPillars ? "checkmark" : "arrow.up.arrow.down")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Theme.accentBottom)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .textCase(nil)
         }
     }
 
@@ -231,14 +271,14 @@ struct DailyView: View {
                     .submitLabel(.done)
                     .onSubmit { add(to: day) }
                 Button {
-                    withAnimation { withTime.toggle() }
+                    withAnimation { planOpen.toggle() }
                 } label: {
-                    Image(systemName: withTime ? "clock.fill" : "clock")
-                        .foregroundStyle(withTime ? .orange : .secondary)
+                    Image(systemName: planOpen ? "calendar.badge.clock" : "clock")
+                        .foregroundStyle(planOpen ? .orange : .secondary)
                         .frame(minWidth: 44, minHeight: 44)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(withTime ? L(S.daily.cancelPillarTime) : L(S.daily.schedulePillarTime))
+                .accessibilityLabel(planOpen ? L(S.daily.cancelPillarTime) : L(S.daily.planPillar))
                 if !newText.isEmpty {
                     Button { add(to: day) } label: {
                         Image(systemName: "plus.circle.fill").foregroundStyle(.orange)
@@ -248,9 +288,18 @@ struct DailyView: View {
                     .accessibilityLabel(L(S.daily.addPillar))
                 }
             }
-            if withTime {
-                DatePicker(L(S.habits.atWhatTime), selection: $newTime, displayedComponents: .hourAndMinute)
+            if planOpen {
+                DatePicker(L(S.daily.planDay), selection: $planDate,
+                           in: Calendar.current.startOfDay(for: .now)...,
+                           displayedComponents: .date)
                     .font(.subheadline)
+                Toggle(L(S.daily.planAtTime), isOn: $planWithTime.animation())
+                    .font(.subheadline)
+                    .tint(.orange)
+                if planWithTime {
+                    DatePicker(L(S.habits.atWhatTime), selection: $newTime, displayedComponents: .hourAndMinute)
+                        .font(.subheadline)
+                }
             }
 
             // Quick suggestions from recent days
@@ -301,6 +350,7 @@ struct DailyView: View {
         Section {
             if habits.isEmpty {
                 Button {
+                    addingHabit = true
                     showHabits = true
                 } label: {
                     Label(L(S.daily.firstHabit), systemImage: "repeat")
@@ -321,7 +371,9 @@ struct DailyView: View {
                                     .foregroundStyle(habit.isActive ? .primary : .secondary)
                                 HStack(spacing: 6) {
                                     Text(habit.daysSummary)
-                                    if let t = habit.reminderLabel {
+                                    if let t = habit.timeLabel {
+                                        Label(t, systemImage: habit.reminderMinutes != nil ? "bell" : "clock")
+                                    } else if let t = habit.reminderLabel {
                                         Label(t, systemImage: "bell")
                                     }
                                     if !habit.isActive {
@@ -341,6 +393,7 @@ struct DailyView: View {
                     }
                     .buttonStyle(.plain)
                 }
+                .onMove { from, to in Habit.reorder(habits, from: from, to: to) }
             }
         } header: {
             HStack {
@@ -351,6 +404,7 @@ struct DailyView: View {
                 Spacer()
                 if !habits.isEmpty {
                     Button {
+                        addingHabit = true
                         showHabits = true
                     } label: {
                         Label(L(S.common.add), systemImage: "plus.circle.fill")
@@ -363,7 +417,7 @@ struct DailyView: View {
             }
         } footer: {
             if !habits.isEmpty {
-                Text(L(S.daily.habitsFooter))
+                Text(L(S.daily.habitsFooter) + " " + L(S.daily.reorderHint))
             }
         }
     }
@@ -375,7 +429,8 @@ struct DailyView: View {
         habits.forEach { excluded.insert($0.text) }
         var seen = Set<String>()
         var out: [String] = []
-        for rec in records where rec !== day {
+        // Only days already lived: what's planned ahead isn't a suggestion.
+        for rec in records where rec !== day && rec.date < day.date {
             for p in rec.pillars.sorted(by: { $0.order < $1.order }) {
                 let t = p.text
                 guard !t.isEmpty, !excluded.contains(t), !seen.contains(t) else { continue }
@@ -425,7 +480,7 @@ struct DailyView: View {
     @ToolbarContentBuilder
     private var habitsItem: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
-            Button { showHabits = true } label: {
+            Button { addingHabit = false; showHabits = true } label: {
                 Image(systemName: "repeat")
             }
             .accessibilityLabel(L(S.daily.habitsHeader))
@@ -488,6 +543,7 @@ struct DailyView: View {
     private func makeHabit(from text: String) {
         guard !habits.contains(where: { $0.text == text }) else { return }
         let habit = Habit(text: text)
+        habit.sortOrder = (habits.map(\.sortOrder).max() ?? -1) + 1
         ctx.insert(habit)
         ctx.saveChanges()
         Haptics.success()
@@ -497,44 +553,95 @@ struct DailyView: View {
     /// Plan gentle habit notifications for the coming week; a habit finished
     /// today won't ping again today.
     private func syncHabitReminders(_ day: DayRecord) {
-        let done = Set(day.pillars.filter(\.isCompleted).map(\.text))
+        let done = Set(day.pillars.filter(\.isCompleted).map(\.text)).union(day.skippedHabits)
         NotificationManager.syncHabitReminders(habits: habits, completedTodayTexts: done)
     }
 
-    // MARK: - Planning tomorrow
+    // MARK: - Planned days
+
+    private var todayStart: Date { Calendar.current.startOfDay(for: .now) }
 
     private var tomorrowDate: Date {
-        Calendar.current.date(byAdding: .day, value: 1,
-                              to: Calendar.current.startOfDay(for: .now))!
+        Calendar.current.date(byAdding: .day, value: 1, to: todayStart)!
     }
 
     private var tomorrowRecord: DayRecord? {
         records.first { Calendar.current.isDate($0.date, inSameDayAs: tomorrowDate) }
     }
 
-    private var tomorrowPillars: [Pillar] {
-        (tomorrowRecord?.pillars ?? []).sorted { $0.order < $1.order }
+    /// Days after today that already have something planned, soonest first.
+    private var plannedRecords: [DayRecord] {
+        records.filter { $0.date > todayStart && !$0.pillars.isEmpty }
+               .sorted { $0.date < $1.date }
+    }
+
+    /// The day's record, created only once something is actually put on it.
+    private func record(for dayStart: Date) -> DayRecord {
+        if let existing = records.first(where: { Calendar.current.isDate($0.date, inSameDayAs: dayStart) }) {
+            return existing
+        }
+        let rec = DayRecord(date: dayStart)
+        ctx.insert(rec)
+        return rec
+    }
+
+    private func dayLabel(_ date: Date) -> String {
+        date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)
+            .locale(Language.shared.current.locale))
     }
 
     @ViewBuilder
-    private var tomorrowSection: some View {
+    private func plannedSection(_ today: DayRecord) -> some View {
         Section {
-            ForEach(tomorrowPillars) { p in
-                HStack(spacing: 12) {
-                    Image(systemName: "moon.stars")
-                        .foregroundStyle(.indigo.opacity(0.7))
-                    Text(p.text)
-                        .font(.system(.subheadline, design: .rounded))
-                    Spacer(minLength: 0)
-                }
-                .swipeActions(edge: .trailing) {
-                    Button(role: .destructive) { removeFromTomorrow(p.id) } label: {
-                        Label(L(S.common.delete), systemImage: "trash")
+            ForEach(plannedRecords) { rec in
+                ForEach(rec.pillars.sorted { $0.order < $1.order }) { p in
+                    HStack(spacing: 12) {
+                        Image(systemName: "calendar")
+                            .foregroundStyle(.indigo.opacity(0.7))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(p.text)
+                                .font(.system(.subheadline, design: .rounded))
+                            HStack(spacing: 4) {
+                                Text(dayLabel(rec.date))
+                                if let t = p.scheduledAt {
+                                    Text("·")
+                                    Text(t.formatted(date: .omitted, time: .shortened))
+                                }
+                            }
+                            .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) { removePlanned(p.id, from: rec) } label: {
+                            Label(L(S.common.delete), systemImage: "trash")
+                        }
+                    }
+                    .swipeActions(edge: .leading) {
+                        if !today.isCompleted {
+                            Button { moveToToday(p, from: rec, into: today) } label: {
+                                Label(L(S.daily.moveToToday), systemImage: "arrow.uturn.down")
+                            }
+                            .tint(.orange)
+                        }
+                    }
+                    .contextMenu {
+                        if !today.isCompleted {
+                            Button { moveToToday(p, from: rec, into: today) } label: {
+                                Label(L(S.daily.moveToToday), systemImage: "arrow.uturn.down")
+                            }
+                        }
+                        Button(role: .destructive) { removePlanned(p.id, from: rec) } label: {
+                            Label(L(S.common.delete), systemImage: "trash")
+                        }
                     }
                 }
             }
 
-            if tomorrowPillars.count < maxPillars {
+            // With today closed the add field is gone; a thought can still go
+            // to tomorrow from here.
+            if today.isCompleted, (tomorrowRecord?.pillars.count ?? 0) < maxPillars {
                 HStack {
                     TextField(L(S.daily.tomorrowPlaceholder), text: $newTomorrowText)
                         .focused($focusedInput, equals: .tomorrow)
@@ -553,37 +660,64 @@ struct DailyView: View {
                 }
             }
         } header: {
-            Text(L(S.daily.tomorrowHeader))
+            Text(L(S.daily.plannedHeader))
                 .font(.system(.subheadline, design: .rounded).weight(.bold))
                 .foregroundStyle(Theme.creamLabel)
                 .textCase(nil)
         } footer: {
-            Text(L(S.daily.tomorrowFooter))
+            Text(L(S.daily.plannedFooter))
         }
     }
 
     private func addToTomorrow() {
         let text = newTomorrowText.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return }
-        // Create tomorrow's record only once something is actually planned.
-        let record: DayRecord
-        if let existing = tomorrowRecord {
-            record = existing
-        } else {
-            record = DayRecord(date: tomorrowDate)
-            ctx.insert(record)
-        }
-        record.pillars.append(Pillar(text: text, order: record.pillars.count))
+        let rec = record(for: tomorrowDate)
+        rec.pillars.append(Pillar(text: text, order: rec.pillars.count))
         newTomorrowText = ""
         ctx.saveChanges()
         Haptics.tap()
     }
 
-    private func removeFromTomorrow(_ id: UUID) {
-        guard let record = tomorrowRecord else { return }
-        record.pillars.removeAll { $0.id == id }
+    private func removePlanned(_ id: UUID, from rec: DayRecord) {
+        NotificationManager.cancelPillarReminder(id: id)
+        rec.pillars.removeAll { $0.id == id }
+        // Don't leave an empty future day behind in the calendar.
+        if rec.pillars.isEmpty, rec.buildings.isEmpty { ctx.delete(rec) }
         ctx.saveChanges()
         Haptics.drop()
+    }
+
+    /// Bring a planned pillar into today, keeping its time of day if it had one.
+    private func moveToToday(_ p: Pillar, from rec: DayRecord, into day: DayRecord) {
+        guard !day.isCompleted, day.pillars.count < maxPillars else { Haptics.warning(); return }
+        removePlanned(p.id, from: rec)
+        let when = p.scheduledAt.map(todayAt)
+        let moved = Pillar(text: p.text, order: day.pillars.count, isFromPool: p.isFromPool, scheduledAt: when)
+        day.pillars.append(moved)
+        if let when { NotificationManager.schedulePillarReminder(id: moved.id, text: moved.text, date: when) }
+        ctx.saveChanges()
+        Haptics.tap()
+    }
+
+    private func showNotice(_ text: String) {
+        withAnimation(.spring(response: 0.3)) { notice = text }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+            withAnimation { if notice == text { notice = nil } }
+        }
+    }
+
+    @ViewBuilder
+    private var noticeToast: some View {
+        if let notice {
+            Label(notice, systemImage: "calendar.badge.checkmark")
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(Color.indigo.opacity(0.92), in: Capsule())
+                .foregroundStyle(.white)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .padding(.top, 4)
+        }
     }
 
     // MARK: - Carry over unfinished pillars
@@ -677,37 +811,63 @@ struct DailyView: View {
         Haptics.drop()
     }
 
-    /// Add today's scheduled habits as pillars (idempotent).
+    /// Add today's scheduled habits as pillars (idempotent), carrying each
+    /// habit's time. Habits skipped for today stay off.
     private func fillHabits(into day: DayRecord) {
         guard !day.isCompleted else { return }
         let existing = Set(day.pillars.map(\.text))
         for habit in habits where habit.isScheduled(on: day.date) {
-            guard !existing.contains(habit.text), day.pillars.count < maxPillars else { continue }
-            day.pillars.append(Pillar(text: habit.text, order: day.pillars.count, isHabit: true))
+            let when = habit.scheduledDate(on: day.date)
+            if existing.contains(habit.text) {
+                // Follow a time changed in the habit editor.
+                if let i = day.pillars.firstIndex(where: { $0.isHabit && $0.text == habit.text && !$0.isCompleted }),
+                   day.pillars[i].scheduledAt != when {
+                    day.pillars[i].scheduledAt = when
+                }
+                continue
+            }
+            guard !day.skippedHabits.contains(habit.text), day.pillars.count < maxPillars else { continue }
+            day.pillars.append(Pillar(text: habit.text, order: day.pillars.count, isHabit: true, scheduledAt: when))
         }
     }
 
     private func add(to day: DayRecord) {
         let t = newText.trimmingCharacters(in: .whitespaces)
         guard !t.isEmpty else { return }
-        let scheduled = withTime ? todayAt(newTime) : nil
-        let pillar = Pillar(text: t, order: day.pillars.count, scheduledAt: scheduled)
-        day.pillars.append(pillar)
+        let cal = Calendar.current
+        let dayStart = planOpen ? cal.startOfDay(for: planDate) : todayStart
+        let isToday = cal.isDate(dayStart, inSameDayAs: todayStart)
+        let target = isToday ? day : record(for: dayStart)
+        guard target.pillars.count < maxPillars else { Haptics.warning(); return }
+
+        let scheduled = planOpen && planWithTime ? at(newTime, on: dayStart) : nil
+        let pillar = Pillar(text: t, order: target.pillars.count, scheduledAt: scheduled)
+        target.pillars.append(pillar)
         if let scheduled {
             NotificationManager.schedulePillarReminder(id: pillar.id, text: t, date: scheduled)
         }
+        if !isToday {
+            ctx.saveChanges()
+            Haptics.success()
+            showNotice(L(S.daily.plannedFor, dayLabel(dayStart)))
+        }
         newText = ""
-        withTime = false
+        planOpen = false
+        planWithTime = true
+        planDate = todayStart
         newTime = Self.nextFullHour()
         Tutorial.shared.advance(from: .addTask)
     }
 
-    /// Combine today's date with the picked hour/minute.
-    private func todayAt(_ time: Date) -> Date {
+    /// The picked hour and minute on a given day.
+    private func at(_ time: Date, on day: Date) -> Date {
         let cal = Calendar.current
         let hm = cal.dateComponents([.hour, .minute], from: time)
-        return cal.date(bySettingHour: hm.hour ?? 12, minute: hm.minute ?? 0, second: 0, of: .now) ?? time
+        return cal.date(bySettingHour: hm.hour ?? 12, minute: hm.minute ?? 0, second: 0, of: day) ?? time
     }
+
+    /// Combine today's date with the picked hour/minute.
+    private func todayAt(_ time: Date) -> Date { at(time, on: .now) }
 
     private func setTime(_ date: Date, forID id: UUID, in day: DayRecord) {
         guard let i = day.pillars.firstIndex(where: { $0.id == id }) else { return }
@@ -794,15 +954,37 @@ struct DailyView: View {
         }
     }
 
-    private func remove(_ offsets: IndexSet, from day: DayRecord) {
-        let sorted = day.pillars.sorted(by: { $0.order < $1.order })
-        for i in offsets {
-            NotificationManager.cancelPillarReminder(id: sorted[i].id)
-            // Deleting a completed pillar returns its reward too
-            if sorted[i].woodAwarded > 0 {
-                settings.woodCount = max(0, settings.woodCount - sorted[i].woodAwarded)
-            }
-            day.pillars.removeAll { $0.id == sorted[i].id }
+    /// Take a pillar off today, finished or not. A finished one hands its wood
+    /// back; a habit is only skipped for today, so it doesn't fill straight back in.
+    private func delete(_ p: Pillar, from day: DayRecord) {
+        guard !day.isCompleted else { return }
+        NotificationManager.cancelPillarReminder(id: p.id)
+        if p.woodAwarded > 0 {
+            settings.woodCount = max(0, settings.woodCount - p.woodAwarded)
+            showEarnedToast(-p.woodAwarded)
+        }
+        if p.isHabit, !day.skippedHabits.contains(p.text) {
+            day.skippedHabits.append(p.text)
+        }
+        withAnimation {
+            day.pillars.removeAll { $0.id == p.id }
+            renumber(day.pillars.sorted { $0.order < $1.order }.map(\.id), in: day)
+        }
+        if p.isHabit { syncHabitReminders(day) }
+        ctx.saveChanges()
+        Haptics.drop()
+    }
+
+    private func move(_ from: IndexSet, _ to: Int, in day: DayRecord) {
+        var ids = day.pillars.sorted { $0.order < $1.order }.map(\.id)
+        ids.move(fromOffsets: from, toOffset: to)
+        renumber(ids, in: day)
+        ctx.saveChanges()
+    }
+
+    private func renumber(_ ids: [UUID], in day: DayRecord) {
+        for (order, id) in ids.enumerated() {
+            if let i = day.pillars.firstIndex(where: { $0.id == id }) { day.pillars[i].order = order }
         }
     }
 

@@ -94,6 +94,22 @@ enum S {
         static let addPillarTomorrow = T(cs: "Přidat pilíř na zítra", sk: "Pridať pilier na zajtra",
                                          en: "Add pillar for tomorrow")
 
+        static let plannedHeader = T(cs: "Naplánováno", sk: "Naplánované", en: "Planned")
+        static let plannedFooter = T(cs: "Každý pilíř se ve svůj den sám objeví mezi bloky dneška.",
+                                     sk: "Každý pilier sa vo svoj deň sám objaví medzi blokmi dneška.",
+                                     en: "Each one joins that day's blocks on its own.")
+        static let planWhen = T(cs: "Kdy", sk: "Kedy", en: "When")
+        static let planDay = T(cs: "Den", sk: "Deň", en: "Day")
+        static let planAtTime = T(cs: "V určitý čas", sk: "V určitý čas", en: "At a set time")
+        static let planPillar = T(cs: "Naplánovat pilíř", sk: "Naplánovať pilier", en: "Plan a pillar")
+        static let plannedFor = T(cs: "Naplánováno na %@", sk: "Naplánované na %@", en: "Planned for %@")
+        static let moveToToday = T(cs: "Přesunout na dnešek", sk: "Presunúť na dnešok", en: "Move to today")
+        static let skipToday = T(cs: "Dnes vynechat", sk: "Dnes vynechať", en: "Skip today")
+        static let reorder = T(cs: "Seřadit", sk: "Zoradiť", en: "Reorder")
+        static let reorderHint = T(cs: "Pořadí změníš podržením a přetažením.",
+                                   sk: "Poradie zmeníš podržaním a potiahnutím.",
+                                   en: "Hold and drag to change the order.")
+
         static let carryHeader = T(cs: "Nedokončené z dřívějška", sk: "Nedokončené z minula",
                                    en: "Unfinished from before")
         static let carryFooter = T(cs: "Přenes je do dneška a zkus to znovu, nebo je podrž a smaž.",
@@ -385,6 +401,32 @@ enum S {
         static let chestRare = T(cs: "Vzácná truhla", sk: "Vzácna truhlica", en: "Rare chest")
         static let chestEpic = T(cs: "Zlatá truhla", sk: "Zlatá truhlica", en: "Golden chest")
         static let nice = T(cs: "Super!", sk: "Super!", en: "Lovely!")
+        static let weeklyReward = T(cs: "ODMĚNA ZA TVŮJ TÝDEN", sk: "ODMENA ZA TVOJ TÝŽDEŇ", en: "YOUR WEEKLY REWARD")
+        static let weekProgress = T(cs: "%d ze 7 dnů", sk: "%d zo 7 dní", en: "%d of 7 days")
+        static let chestClaimed = T(cs: "Truhla vyzvednuta", sk: "Truhlica vyzdvihnutá", en: "Chest claimed")
+        static let claimedHint = T(cs: "Díky za tvých sedm malých kroků.", sk: "Vďaka za tvojich sedem malých krokov.", en: "Thank you for your seven small steps.")
+        static let missedHint = T(cs: "Další týden přinese novou truhlu. Každý splněný pilíř se počítá.", sk: "Ďalší týždeň prinesie novú truhlicu. Každý splnený pilier sa počíta.", en: "A new chest awaits next week. Every completed pillar counts.")
+        static let chestRule = T(cs: "Každý den splň alespoň jeden pilíř a na konci týdne odhal svou odměnu.", sk: "Každý deň splň aspoň jeden pilier a na konci týždňa odhaľ svoju odmenu.", en: "Complete at least one pillar each day to reveal your reward at the end of the week.")
+        static let readyQuestion = T(cs: "Co se tentokrát skrývá uvnitř?", sk: "Čo sa tentoraz skrýva vnútri?", en: "What could be waiting inside this time?")
+        static let openChest = T(cs: "Otevřít truhlu", sk: "Otvoriť truhlicu", en: "Open chest")
+        static let openingChest = T(cs: "Truhla se otevírá…", sk: "Truhlica sa otvára…", en: "Opening your chest…")
+        static let sevenSteps = T(cs: "Sedm dnů, sedm malých kroků.", sk: "Sedem dní, sedem malých krokov.", en: "Seven days, seven small steps.")
+        static let continueReward = T(cs: "Pokračovat", sk: "Pokračovať", en: "Continue")
+        static let commonReward = T(cs: "Běžná odměna", sk: "Bežná odmena", en: "Common reward")
+        static let rareReward = T(cs: "Vzácná odměna", sk: "Vzácna odmena", en: "Rare reward")
+        static let epicReward = T(cs: "Zlatá odměna", sk: "Zlatá odmena", en: "Golden reward")
+        static let commonHint = T(cs: "Další kousek pro tvoje město.", sk: "Ďalší kúsok pre tvoje mesto.", en: "Another little piece for your town.")
+        static let rareHint = T(cs: "Dnes se v truhle ukrývalo něco navíc.", sk: "Dnes sa v truhlici ukrývalo niečo navyše.", en: "Something extra was waiting inside today.")
+        static let epicHint = T(cs: "Výjimečný nález pro tvoje město.", sk: "Výnimočný nález pre tvoje mesto.", en: "An exceptional find for your town.")
+        static let moreChests = T(cs: "Další čekající truhly: %d", sk: "Ďalšie čakajúce truhlice: %d", en: "More waiting chests: %d")
+        static let dayComplete = T(cs: "Pilíř splněn", sk: "Pilier splnený", en: "Pillar completed")
+        static let dayAhead = T(cs: "Den před tebou", sk: "Deň pred tebou", en: "Upcoming day")
+        static let dayToday = T(cs: "Dnes, zatím bez splněného pilíře", sk: "Dnes, zatiaľ bez splneného piliera", en: "Today, no pillar completed yet")
+        static let dayMissed = T(cs: "Bez splněného pilíře", sk: "Bez splneného piliera", en: "No pillar completed")
+        static let rewardSaveError = T(cs: "Uložení se nepodařilo dokončit. Zkus to prosím znovu.", sk: "Uloženie sa nepodarilo dokončiť. Skús to prosím znova.", en: "Saving could not be completed. Please try again.")
+        static let today = T(cs: "Dnes", sk: "Dnes", en: "Today")
+        static let previousMonth = T(cs: "Předchozí měsíc", sk: "Predchádzajúci mesiac", en: "Previous month")
+        static let nextMonth = T(cs: "Následující měsíc", sk: "Nasledujúci mesiac", en: "Next month")
 
         static let legendAllDone = T(cs: "Vše splněno", sk: "Všetko splnené", en: "All done")
         static let legendPartly = T(cs: "Částečně", sk: "Čiastočne", en: "Partly")
@@ -518,6 +560,9 @@ enum S {
                                 en: "The bowl is already full")
         static let fillBowl = T(cs: "Nasypat žrádlo (%d mincí)", sk: "Nasypať žrádlo (%d mincí)",
                                 en: "Fill the bowl (%d coins)")
+        static let foodSaveError = T(cs: "Krmení se nepodařilo uložit. Zkus to prosím znovu.",
+                                     sk: "Kŕmenie sa nepodarilo uložiť. Skús to prosím znova.",
+                                     en: "Feeding could not be saved. Please try again.")
         static let nameKennel = T(cs: "Napsat jméno na boudu", sk: "Napísať meno na búdu",
                                   en: "Put a name on it")
         static let bowlFullNote = T(cs: "Miska je plná. Za chvíli si pro ni pes přijde.",
@@ -594,6 +639,14 @@ enum S {
         static let deleteHabit = T(cs: "Smazat návyk", sk: "Zmazať návyk", en: "Delete habit")
         static let editHabit = T(cs: "Upravit návyk", sk: "Upraviť návyk", en: "Edit habit")
         static let atWhatTime = T(cs: "V kolik?", sk: "O koľkej?", en: "At what time?")
+        static let whenSection = T(cs: "Kdy", sk: "Kedy", en: "When")
+        static let atSetTime = T(cs: "V určitý čas", sk: "V určitý čas", en: "At a set time")
+        static let remindAtTime = T(cs: "Připomenout v tento čas", sk: "Pripomenúť v tento čas",
+                                    en: "Remind me at this time")
+        static let timeFooter = T(cs: "Čas se ukáže u pilíře dne, ať víš, kdy na návyk dojde.",
+                                  sk: "Čas sa ukáže pri pilieri dňa, nech vieš, kedy na návyk príde rad.",
+                                  en: "The time shows on the day's pillar, so you know when it's due.")
+        static let added = T(cs: "Přidáno: %@", sk: "Pridané: %@", en: "Added: %@")
         static let doneInWeeks = T(cs: "Splněno %d× za posledních 5 týdnů",
                                    sk: "Splnené %d× za posledných 5 týždňov",
                                    en: "Done %d× in the last 5 weeks")
@@ -699,6 +752,54 @@ enum S {
     }
 
     // MARK: Settings
+
+    enum whatsNew {
+        static let kicker = T(cs: "Novinky ve verzi %@", sk: "Novinky vo verzii %@", en: "New in version %@")
+        static let title = T(cs: "Ve městě se něco změnilo", sk: "V meste sa niečo zmenilo",
+                             en: "Something changed in town")
+        static let continueButton = T(cs: "Pokračovat", sk: "Pokračovať", en: "Continue")
+        static let settingsRow = T(cs: "Novinky", sk: "Novinky", en: "What's new")
+
+        static let planTitle = T(cs: "Plánuj pilíře dopředu", sk: "Plánuj piliere dopredu",
+                                 en: "Plan pillars ahead")
+        static let planDetail = T(
+            cs: "Ťukni na hodiny vedle „Přidat pilíř…“ a vyber den i čas. Ve svůj den se pilíř sám objeví mezi bloky.",
+            sk: "Ťukni na hodiny vedľa „Pridať pilier…“ a vyber deň aj čas. Vo svoj deň sa pilier sám objaví medzi blokmi.",
+            en: "Tap the clock next to “Add a pillar…” and pick a day and time. It joins that day's blocks on its own.")
+        static let tidyTitle = T(cs: "Smaž, vynech a seřaď", sk: "Zmaž, vynechaj a zoraď",
+                                 en: "Delete, skip and reorder")
+        static let tidyDetail = T(
+            cs: "Přejeď po pilíři doleva a smaž ho, i když není hotový. Návyk můžeš jen pro dnešek vynechat. Pořadí změníš tlačítkem Seřadit.",
+            sk: "Potiahni pilier doľava a zmaž ho, aj keď nie je hotový. Návyk môžeš len pre dnešok vynechať. Poradie zmeníš tlačidlom Zoradiť.",
+            en: "Swipe a pillar left to delete it, done or not. A habit can be skipped just for today. Tap Reorder to change the order.")
+        static let habitsTitle = T(cs: "Návyky v určitou hodinu", sk: "Návyky v určitú hodinu",
+                                   en: "Habits at a set time")
+        static let habitsDetail = T(
+            cs: "U návyku zapni „V určitý čas“: čas uvidíš u pilíře a připomínka přijde přesně tehdy. Nové návyky přidáš hned nahoře a návyky přetáhneš do svého pořadí.",
+            sk: "Pri návyku zapni „V určitý čas“: čas uvidíš pri pilieri a pripomienka príde presne vtedy. Nové návyky pridáš hneď hore a návyky potiahneš do svojho poradia.",
+            en: "Turn on “At a set time” for a habit: the time shows on its pillar and the reminder comes right then. New habits are added at the top, and you can drag habits into your own order.")
+        static let dogsTitle = T(cs: "Psi a husky ožili", sk: "Psy a husky ožili", en: "Livelier dogs")
+        static let dogsDetail = T(
+            cs: "Plynulejší pohyby: u misky opravdu jedí, po nakrmení vrtí ocasem a v boudě si lehnou ke spánku.",
+            sk: "Plynulejšie pohyby: pri miske naozaj jedia, po nakŕmení vrtia chvostom a v búde si ľahnú spať.",
+            en: "Smoother moves: dogs and huskies really eat at the bowl, wag after a meal and curl up in their kennel.")
+        static let zooTitle = T(cs: "Zvířata v katalogu stavění", sk: "Zvieratá v katalógu stavania",
+                                en: "Animals in the build catalogue")
+        static let zooDetail = T(cs: "Ťukni na kladívko a vyber kategorii Zvířata.",
+                                 sk: "Ťukni na kladivo a vyber kategóriu Zvieratá.",
+                                 en: "Tap the hammer and pick Animals.")
+        static let chestTitle = T(cs: "Nová týdenní truhla", sk: "Nová týždenná truhlica", en: "A new weekly chest")
+        static let chestDetail = T(
+            cs: "V kalendáři vidíš, jak se k ní den po dni blížíš. Uvnitř může být běžná, vzácná, nebo zlatá odměna.",
+            sk: "V kalendári vidíš, ako sa k nej deň po dni blížiš. Vnútri môže byť bežná, vzácna alebo zlatá odmena.",
+            en: "The calendar shows how close you're getting, day by day. Inside: a common, rare or golden reward.")
+        static let versionHeader = T(cs: "Verze %@", sk: "Verzia %@", en: "Version %@")
+        static let weekTitle = T(cs: "Týden od pondělí", sk: "Týždeň od pondelka", en: "Weeks start on Monday")
+        static let weekDetail = T(
+            cs: "Týdenní truhla i kalendář teď počítají týden od pondělí do neděle.",
+            sk: "Týždenná truhlica aj kalendár teraz počítajú týždeň od pondelka do nedele.",
+            en: "The weekly chest and the calendar now count weeks from Monday to Sunday.")
+    }
 
     enum settings {
         static let title = T(cs: "Nastavení", sk: "Nastavenia", en: "Settings")

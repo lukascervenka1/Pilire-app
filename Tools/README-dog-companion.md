@@ -6,7 +6,7 @@ Run from the Xcode project directory with Python 3 and NumPy:
 python3 Tools/author_dog_companion.py
 ```
 
-This appends five skeletal clips to `shiba.gltf` and `husky.gltf`:
+This appends seven skeletal clips to `shiba.gltf` and `husky.gltf`:
 
 | Clip | Seconds | Playback |
 | --- | ---: | --- |
@@ -15,6 +15,8 @@ This appends five skeletal clips to `shiba.gltf` and `husky.gltf`:
 | Companion_Rise | 1.8 | Raise head, then restore support on all four paws |
 | Companion_Pet | 2.4 | Tail response and a small head turn |
 | Companion_Sniff | 3.2 | Pause to investigate with the nose |
+| Companion_Eat | 6.4 | Four planted paws, lower the muzzle to the bowl, chew, then raise the head |
+| Companion_Fed | 2.8 | Wag the tail and tilt the head toward the player |
 
 Original geometry, skins, materials, bind transforms and clips are preserved.
 Generated data uses a separate embedded buffer. `extras.companionAuthoring`
@@ -32,6 +34,38 @@ walk into bed → lie down → breathe → rise → resume behavior. Generation 
 invalidate queued action completions after commands, carrying or rig replacement.
 The kennel remains reserved until standing has finished. Reduce Motion omits the
 extra sniff/tail gestures, while retaining the necessary posture transitions.
+
+## Feeding
+
+`AnimalFeeding.swift` defines the shared clip timing and a reservation for one
+reachable bowl. `TownScene` finds the nearest free bowl using the navigation
+grid and honors all four doghouse rotations. Refilling wakes a sleeping pet;
+a walking pet changes course at its next tile boundary.
+
+The pet stands outside the bowl with its muzzle over the food. Nine timed bites
+gradually hide the granules. Only the last bite persists consumption of that
+specific bowl. An interrupted meal restores the visible portions and leaves
+the stored food available; a failed save does the same. Reservations prevent
+two pets eating from the same bowl. The pet leaves the eating spot before
+releasing its reservation, faces the camera, wags and shows an affection heart.
+Reduce Motion keeps the eating posture and affection heart with a calm idle
+instead of the extra tail/head gesture.
+
+Verify the exported clips' skinned geometry, planted paws, muzzle placement,
+tail movement and return to standing:
+
+```sh
+python3 Tools/check_dog_feeding.py
+```
+
+`DogFeedingPreview.swift` is a standalone simulator fixture linked against a
+Debug build with `@testable import Pilire`. Bundle the app's debug dylib,
+GLTFKit2 framework, Assets.car and the two dog assets in a separate preview
+app. It uses an in-memory SwiftData container and never opens the player's
+town. Launch arguments: `--case=complete`, `carry`, `remove`, `save-failure`,
+`two-dogs` or `sleeping`; `--rotation=0` through `3`; optionally `--husky`.
+The fixture writes `Documents/feeding-result.json` with its verdict, bowl
+identity checks, visible portion counts and maximum simultaneous eaters.
 
 ## Navigation to a kennel
 

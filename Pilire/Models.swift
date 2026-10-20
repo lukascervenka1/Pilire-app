@@ -8,6 +8,8 @@ final class DayRecord {
     var isCompleted: Bool
     @Relationship(deleteRule: .nullify, inverse: \Building.dayRecord)
     var buildings: [Building] = []
+    /// Habits taken off this day on purpose, so they aren't added back.
+    var skippedHabits: [String] = []
 
     init(date: Date = .now) {
         self.date = Calendar.current.startOfDay(for: date)

@@ -265,4 +265,64 @@ Snímky vznikly v simulátoru iPhone 17 Pro Max v Debug buildu. Argumenty
 historii dnů. V Release buildu nic z toho neexistuje.
 
 ## „Co je nového“
-Pro verzi 1.0 se nevyplňuje. Pole se objeví až u první aktualizace.
+
+Nejnovější verze je nahoře. Stejné novinky ukazuje i okno ve hře
+(`Pilire/ReleaseNotes.swift`) a Nastavení → Novinky. Limit pole je 4000 znaků.
+
+### 1.0.2
+
+🇨🇿
+```
+Plánuj dopředu a uprav si den po svém:
+
+• Pilíře teď naplánuješ na libovolný den a čas. Ťukni na hodiny vedle „Přidat pilíř…“.
+• Pilíř smažeš, i když není hotový. Návyk můžeš jen pro dnešek vynechat.
+• Pilíře i návyky seřadíš přetažením.
+• Návyky mohou mít pevný čas a připomínka přijde přesně tehdy. Nový návyk přidáš hned nahoře.
+• Psi a husky mají plynulejší pohyby: u misky opravdu jedí, po nakrmení vrtí ocasem a v boudě si lehnou ke spánku.
+• Týdenní truhla i kalendář počítají týden od pondělí do neděle.
+```
+
+🇸🇰
+```
+Plánuj dopredu a uprav si deň po svojom:
+
+• Piliere teraz naplánuješ na ľubovoľný deň a čas. Ťukni na hodiny vedľa „Pridať pilier…“.
+• Pilier zmažeš, aj keď nie je hotový. Návyk môžeš len pre dnešok vynechať.
+• Piliere aj návyky zoradíš potiahnutím.
+• Návyky môžu mať pevný čas a pripomienka príde presne vtedy. Nový návyk pridáš hneď hore.
+• Psy a husky majú plynulejšie pohyby: pri miske naozaj jedia, po nakŕmení vrtia chvostom a v búde si ľahnú spať.
+• Týždenná truhlica aj kalendár počítajú týždeň od pondelka do nedele.
+```
+
+🇬🇧 (U.K. i U.S.)
+```
+Plan ahead and shape your day your way:
+
+• Plan pillars for any day and time. Tap the clock next to “Add a pillar…”.
+• Delete a pillar even if it isn't done, or skip a habit just for today.
+• Drag pillars and habits into your own order.
+• Habits can have a set time, and the reminder comes right then. New habits are added at the top.
+• Smoother dogs and huskies: they really eat at the bowl, wag after a meal and curl up in their kennel.
+• The weekly chest and the calendar now count weeks from Monday to Sunday.
+```
+
+### 1.0.1
+
+🇨🇿
+```
+• Týdenní truhla v novém kabátě: v kalendáři vidíš, jak se k ní každým dnem blížíš, a při otevření se dozvíš, jestli je odměna běžná, vzácná, nebo zlatá.
+• Zvířata teď koupíš přímo v katalogu stavění – ťukni na kladívko a vyber kategorii Zvířata.
+```
+
+🇸🇰
+```
+• Týždenná truhlica v novom šate: v kalendári vidíš, ako sa k nej každým dňom blížiš, a pri otvorení zistíš, či je odmena bežná, vzácna alebo zlatá.
+• Zvieratá si teraz kúpiš priamo v katalógu stavania – ťukni na kladivo a vyber kategóriu Zvieratá.
+```
+
+🇬🇧
+```
+• A new weekly chest: the calendar shows how close you are each day, and opening it reveals whether your reward is common, rare or golden.
+• Adopt animals straight from the build catalogue – tap the hammer and pick Animals.
+```

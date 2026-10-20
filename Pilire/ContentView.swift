@@ -34,9 +34,11 @@ struct ContentView: View {
     @State private var payout: PayoutPresentation?
     @State private var loginToast: Int?
     @State private var showOnboarding = false
+    @State private var showReleaseNotes = false
     @State private var decoToRemove: DecorationNode?
     @State private var animalToTuck: OwnedAnimal?
     @State private var doghouseToFeed: PlacedDecoration?
+    @State private var feedingSaveError = false
     @State private var doghouseToRename: PlacedDecoration?
     @State private var kennelName = ""
     @State private var tappedAnimal: TappedAnimal?
@@ -122,6 +124,16 @@ struct ContentView: View {
                 )
                 .padding(.bottom, 92)
                 .animation(.spring(response: 0.4), value: tutorial.step)
+            }
+        }
+        // After an update: once badges have had their moment.
+        .overlay {
+            if showReleaseNotes, unlockQueue.isEmpty, !showOnboarding {
+                ReleaseNotesOverlay {
+                    ReleaseNotes.markSeen()
+                    withAnimation(.easeOut(duration: 0.2)) { showReleaseNotes = false }
+                }
+                .transition(.opacity)
             }
         }
         .overlay {
@@ -223,6 +235,8 @@ struct ContentView: View {
             OnboardingView {
                 hasSeenOnboarding = true
                 showOnboarding = false
+                // A new player meets everything through the tutorial instead.
+                ReleaseNotes.markSeen()
                 // Now that they've seen what the app is for, the reminder
                 // prompt has some context to stand on.
                 NotificationManager.requestPermission()
@@ -244,6 +258,11 @@ struct ContentView: View {
             if !hasSeenOnboarding, Language.shared.hasChosen {
                 // Wait for the splash to fade before presenting the tutorial
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.8) { showOnboarding = true }
+            } else if ReleaseNotes.shouldShow(hasSeenOnboarding: hasSeenOnboarding) {
+                // Same wait as onboarding, so the splash has faded first.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.8) {
+                    withAnimation(.easeOut(duration: 0.25)) { showReleaseNotes = true }
+                }
             }
             checkAchievements()
         }
@@ -377,6 +396,11 @@ struct ContentView: View {
                  ? L(S.town.bowlFullNote)
                  : L(S.town.kennelNote))
         }
+        .alert(L(S.town.doghouse), isPresented: $feedingSaveError) {
+            Button(L(S.common.close), role: .cancel) { }
+        } message: {
+            Text(L(S.town.foodSaveError))
+        }
         .alert(L(S.town.kennelNameTitle), isPresented: Binding(
             get: { doghouseToRename != nil },
             set: { if !$0 { doghouseToRename = nil } })
@@ -412,11 +436,22 @@ struct ContentView: View {
     private func fillDogBowl() {
         guard let dec = doghouseToFeed else { return }
         doghouseToFeed = nil
+        guard !dec.hasFood else { return }
         guard settings.coinBalance >= DecorationItem.dogFoodPrice else { Haptics.warning(); return }
+        let previousBalance = settings.coinBalance
         settings.coinBalance -= DecorationItem.dogFoodPrice
         dec.hasFood = true
-        ctx.saveChanges()
+        do {
+            try ctx.save()
+        } catch {
+            settings.coinBalance = previousBalance
+            dec.hasFood = false
+            feedingSaveError = true
+            Haptics.warning()
+            return
+        }
         scene.decorationNodes.first { $0.associatedDecoration === dec }?.setBowlFilled(true)
+        scene.notifyBowlFilled()
         Haptics.success()
     }
 
@@ -646,12 +681,17 @@ struct ContentView: View {
         }
 
         // A pet finished the bowl — clear it.
-        scene.onBowlEmptied = {
-            for d in decorations where d.type == .doghouse && d.hasFood {
-                d.hasFood = false
-                scene.decorationNodes.first { $0.associatedDecoration === d }?.setBowlFilled(false)
+        scene.onBowlEmptied = { decoration in
+            guard decoration.hasFood else { return false }
+            decoration.hasFood = false
+            do {
+                try ctx.save()
+                return true
+            } catch {
+                decoration.hasFood = true
+                feedingSaveError = true
+                return false
             }
-            ctx.saveChanges()
         }
 
         scene.onAnimalTapped = { node in

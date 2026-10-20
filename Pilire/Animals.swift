@@ -250,8 +250,15 @@ final class AnimalNode: SCNNode {
     /// Somewhere the pet wants to get to (its doghouse at night, or a full bowl).
     /// The scene supplies these; nil means "just wander".
     var findBed: ((AnimalNode) -> AnimalKennelDestination?)?
-    var findBowl: ((AnimalNode) -> (cell: (col: Int, row: Int), world: SCNVector3)?)?
-    var onAteFromBowl: ((AnimalNode) -> Void)?
+    var findBowl: ((AnimalNode) -> AnimalBowlDestination?)?
+    var playerFacingYaw: ((AnimalNode) -> Float)?
+    private var bowlDestination: AnimalBowlDestination?
+    private var mealConsumed = false
+    private(set) var isEating = false
+    var claimedBowlID: ObjectIdentifier? { bowlDestination?.id }
+    var canNoticeFood: Bool {
+        rigged && kind.usesDoghouse && !isCarried && !isRising && !isEating && bowlDestination == nil
+    }
     private var inKennel = false
     private var kennelDestination: AnimalKennelDestination?
     var claimedKennelID: ObjectIdentifier? { kennelDestination?.id }
@@ -377,6 +384,7 @@ final class AnimalNode: SCNNode {
     private func cancelBehavior() {
         behaviorGeneration += 1
         removeAllActions()
+        cancelFeeding()
     }
 
     /// Kick off the endless think-act loop after a small random delay so a herd
@@ -393,12 +401,16 @@ final class AnimalNode: SCNNode {
     /// straight line) or a rest. Deciding per-journey — not per-tile — keeps the
     /// motion calm instead of twitchy.
     private func behave() {
-        guard parent != nil, !isCarried, !isSleeping, !isRising else { return }
+        guard parent != nil, !isCarried, !isSleeping, !isRising, !isEating else { return }
         let canSeekTarget = Date() >= targetCooldownUntil
 
         // A full bowl beats everything else — go eat.
+        if let reserved = bowlDestination {
+            if reserved.isValid() { goToBowl(reserved); return }
+            cancelFeeding()
+        }
         if canSeekTarget, let bowl = findBowl?(self) {
-            headTo(bowl.cell, then: { [weak self] in self?.eatFromBowl(at: bowl.world) })
+            goToBowl(bowl)
             return
         }
 
@@ -424,6 +436,7 @@ final class AnimalNode: SCNNode {
     /// targeted again. Crucially this defers through an action instead of calling
     /// `behave()` straight back, which would recurse until the thread locked up.
     private func abandonTarget() {
+        cancelFeeding()
         targetCooldownUntil = Date().addingTimeInterval(20)
         kennelDestination = nil
         inKennel = false
@@ -442,6 +455,13 @@ final class AnimalNode: SCNNode {
                         isValid: @escaping () -> Bool = { true },
                         then arrive: @escaping () -> Void) {
         guard parent != nil, !isCarried, isValid() else { abandonTarget(); return }
+        if kennelDestination != nil,
+           bowlDestination?.isValid() == true || findBowl?(self) != nil {
+            kennelDestination = nil
+            isTravelling = false
+            behave()
+            return
+        }
         let goal = AnimalCell(col: target.col, row: target.row)
         guard stopAdjacent || canWalkOnLand(goal) else { abandonTarget(); return }
         let goals = stopAdjacent ? Set(goal.neighbors.filter(canWalkOnLand)) : [goal]
@@ -472,24 +492,119 @@ final class AnimalNode: SCNNode {
         }
     }
 
-    /// Nose into the bowl, munch, then let the scene empty it.
-    private func eatFromBowl(at world: SCNVector3) {
-        let approach = SCNAction.move(to: SCNVector3(world.x, 0, world.z + 0.35), duration: 0.5)
+    private func goToBowl(_ bowl: AnimalBowlDestination) {
+        bowlDestination = bowl
+        mealConsumed = false
+        kennelDestination = nil
+        headTo((bowl.entrance.col, bowl.entrance.row), stopAdjacent: false,
+               isValid: bowl.isValid) { [weak self] in self?.eatFromBowl(bowl) }
+    }
+
+    /// Stand at the bowl, lower the neck and chew. No rest/death clip participates.
+    private func eatFromBowl(_ bowl: AnimalBowlDestination) {
+        guard bowl.isValid() else { abandonTarget(); return }
+        isTravelling = true
+        play(["walk", "idle"])
+        let distance = hypot(bowl.standingWorld.x - position.x, bowl.standingWorld.z - position.z)
+        let approach = SCNAction.move(to: bowl.standingWorld, duration: max(0.35, Double(distance) * kind.walkSecondsPerTile))
         approach.timingMode = .easeInEaseOut
         after(.sequence([
-            .rotateTo(x: 0, y: CGFloat(atan2(world.x - position.x, world.z - position.z)),
+            .rotateTo(x: 0, y: CGFloat(atan2(bowl.standingWorld.x - position.x, bowl.standingWorld.z - position.z)),
                       z: 0, duration: 0.25, usesShortestUnitArc: true),
             approach,
+            .rotateTo(x: 0, y: CGFloat(bowl.yaw), z: 0, duration: 0.3, usesShortestUnitArc: true),
         ])) { [weak self] in
-            guard let self else { return }
-            self.play(["eat", "eating", "idle"])
-            self.after(.wait(duration: 4.0)) { [weak self] in
-                guard let self else { return }
-                self.onAteFromBowl?(self)
-                self.play(["idle", "rest"])
-                self.after(.wait(duration: 0.6)) { [weak self] in self?.behave() }
+            guard let self, bowl.isValid() else { self?.abandonTarget(); return }
+            self.isTravelling = false
+            self.isEating = true
+            self.play([DogFeedingMotion.eatClip, CompanionMotion.sniff, "idle"])
+            self.takeBite(0, from: bowl)
+        }
+    }
+
+    private func takeBite(_ index: Int, from bowl: AnimalBowlDestination) {
+        let previous = index == 0 ? 0 : DogFeedingMotion.biteTimes[index - 1]
+        after(.wait(duration: DogFeedingMotion.biteTimes[index] - previous)) { [weak self] in
+            guard let self, self.isEating, bowl.isValid() else { self?.abandonTarget(); return }
+            if index + 1 < DogFeedingMotion.biteTimes.count {
+                bowl.updateProgress(Double(index + 1) / Double(DogFeedingMotion.biteTimes.count))
+                self.takeBite(index + 1, from: bowl)
+            } else {
+                guard bowl.consume() else { self.abandonTarget(); return }
+                self.mealConsumed = true
+                let liftHead = DogFeedingMotion.eatDuration - DogFeedingMotion.biteTimes[index]
+                self.after(.wait(duration: liftHead)) { [weak self] in self?.enjoyMeal() }
             }
         }
+    }
+
+    private func enjoyMeal() {
+        isEating = false
+        awakeUntil = Date().addingTimeInterval(60)
+        lastDayRest = Date()
+        // Clear the eating spot before releasing it, so two pets cannot overlap.
+        let center = worldFor(col, row)
+        let distance = hypot(center.x - position.x, center.z - position.z)
+        isTravelling = true
+        play(["walk", "idle"])
+        after(.sequence([
+            .rotateTo(x: 0, y: CGFloat(atan2(center.x - position.x, center.z - position.z)),
+                      z: 0, duration: 0.2, usesShortestUnitArc: true),
+            .move(to: center, duration: max(0.25, Double(distance) * kind.walkSecondsPerTile)),
+        ])) { [weak self] in
+            guard let self else { return }
+            self.bowlDestination = nil
+            self.mealConsumed = false
+            self.isTravelling = false
+            self.lastDir = nil
+            self.play(["idle"])
+            let yaw = self.playerFacingYaw?(self) ?? self.eulerAngles.y
+            self.after(.rotateTo(x: 0, y: CGFloat(yaw), z: 0, duration: 0.4,
+                                 usesShortestUnitArc: true)) { [weak self] in
+                guard let self else { return }
+                self.play(self.calm ? ["idle"] : [DogFeedingMotion.fedClip, CompanionMotion.pet, "idle"])
+                self.showAffection()
+                Haptics.success()
+                self.after(.wait(duration: DogFeedingMotion.fedDuration)) { [weak self] in
+                    self?.play(["idle"])
+                    self?.finishIdle(after: 1.5)
+                }
+            }
+        }
+    }
+
+    private func cancelFeeding() {
+        if !mealConsumed { bowlDestination?.updateProgress(0) }
+        bowlDestination = nil
+        mealConsumed = false
+        isEating = false
+    }
+
+    /// Food wakes a resting pet; a travelling pet changes course at its next tile.
+    func noticeFood() {
+        guard canNoticeFood, let bowl = findBowl?(self) else { return }
+        targetCooldownUntil = .distantPast
+        awakeUntil = Date().addingTimeInterval(60)
+        if isSleeping {
+            let actual = isTravelling ? presentation.position : position
+            cancelBehavior()
+            bowlDestination = bowl
+            position = actual
+            poseNode.removeAllActions()
+            commandedNap = false
+            standUp { [weak self] in self?.behave() }
+        } else if !isTravelling {
+            cancelBehavior()
+            bowlDestination = bowl
+            after(.wait(duration: 0.35)) { [weak self] in self?.behave() }
+        } else {
+            bowlDestination = bowl
+        }
+    }
+
+    func stopLiving() {
+        cancelBehavior()
+        kennelDestination = nil
     }
 
     /// Rest at the actual floor height, without burying the legs or shrinking the rig.
@@ -631,7 +746,7 @@ final class AnimalNode: SCNNode {
               Date().timeIntervalSince(lastPetting) > 3 else { return }
         lastPetting = Date()
         Haptics.tap()
-        if !isTravelling, !inKennel {
+        if !isTravelling, !inKennel, !isEating, bowlDestination == nil {
             cancelBehavior()
             if !calm, clips[CompanionMotion.pet] != nil {
                 play([CompanionMotion.pet])
@@ -644,8 +759,14 @@ final class AnimalNode: SCNNode {
                 finishIdle(after: 3)
             }
         }
+        showAffection()
+    }
+
+    private func showAffection() {
         childNode(withName: "affection", recursively: false)?.removeFromParentNode()
         let path = UIBezierPath()
+        // The default tessellation tolerance is larger than this tiny heart.
+        path.flatness = 0.001
         path.move(to: CGPoint(x: 0, y: -0.04))
         path.addCurve(to: CGPoint(x: -0.055, y: 0.025), controlPoint1: CGPoint(x: -0.025, y: -0.018), controlPoint2: CGPoint(x: -0.060, y: 0.002))
         path.addCurve(to: CGPoint(x: 0, y: 0.038), controlPoint1: CGPoint(x: -0.05, y: 0.063), controlPoint2: CGPoint(x: -0.014, y: 0.065))
@@ -779,6 +900,12 @@ final class AnimalNode: SCNNode {
 
     private func advance(dir: (dx: Int, dy: Int), remaining: Int, sprint: Bool) {
         guard parent != nil, remaining > 0 else { idle(); return }
+        if kind.usesDoghouse, Date() >= targetCooldownUntil,
+           bowlDestination != nil || findBowl?(self) != nil {
+            isTravelling = false
+            behave()
+            return
+        }
         guard let step = nextStep(from: dir) else { idle(); return }
         let turned = step.dx != dir.dx || step.dy != dir.dy
         stepTile(step, sprint: sprint, turned: turned) { [weak self] in

@@ -1274,7 +1274,12 @@ final class TownScene: NSObject {
             for o in building.occupiedOffsets { occupied.insert(SIMD2(building.gridX+o.dx,building.gridY+o.dy)) }
         }
         var corners: [SCNVector3] = []
+        var bowls: [SCNVector3] = []
         for decoration in decorationNodes {
+            if decoration.type == .doghouse,
+               let bowl = decoration.childNode(withName: "bowl", recursively: true) {
+                bowls.append(bowl.worldPosition)
+            }
             if decoration.isCornerAnchor {
                 corners.append(cornerToWorld(cx: decoration.gridX, cy: decoration.gridY))
             } else {
@@ -1289,11 +1294,20 @@ final class TownScene: NSObject {
                   !corners.contains(where: { p in
                       let dx = p.x-sample.position.x, dz = p.z-sample.position.z
                       return dx*dx+dz*dz < 0.32*0.32
+                  }),
+                  !bowls.contains(where: { p in
+                      let dx = p.x-sample.position.x, dz = p.z-sample.position.z
+                      return dx*dx+dz*dz < 0.34*0.34
                   }) else { continue }
             group.addChildNode(sample.clone())
         }
         scnScene.rootNode.childNodes.filter { $0.name == "groundDetail" }.forEach { $0.removeFromParentNode() }
+        // Commit the detached patches' transforms before SceneKit bakes them;
+        // otherwise freshly cloned patches can all collapse at the map origin.
+        scnScene.rootNode.addChildNode(group)
+        SCNTransaction.flush()
         let merged = group.flattenedClone()
+        group.removeFromParentNode()
         merged.name = "groundDetail"
         merged.enumerateHierarchy { n,_ in n.categoryBitMask = Self.decorCategory; n.castsShadow = false }
         scnScene.rootNode.addChildNode(merged)
@@ -1451,16 +1465,13 @@ final class TownScene: NSObject {
         node.findBed = { [weak self] animal in self?.freeKennel(for: animal) }
         node.findBowl = { [weak self] animal in
             guard animal.kind.usesDoghouse else { return nil }   // it's dog food
-            return self?.filledBowl()
+            return self?.filledBowl(for: animal)
         }
-        node.onAteFromBowl = { [weak self] _ in
-            // Fired from a SceneKit action completion (render thread) — clear the
-            // node flag here, then hop to the main thread for the SwiftData part.
-            guard let self else { return }
-            for d in self.decorationNodes where d.type == .doghouse && d.bowlHasFood {
-                d.setBowlFilled(false)
-            }
-            DispatchQueue.main.async { [weak self] in self?.onBowlEmptied?() }
+        node.playerFacingYaw = { [weak self] animal in
+            guard let self else { return animal.eulerAngles.y }
+            let camera = self.cameraNode.presentation.worldPosition
+            let pet = animal.worldPosition
+            return atan2(camera.x - pet.x, camera.z - pet.z)
         }
 
         let cell = randomWalkableLandCell()
@@ -1477,7 +1488,7 @@ final class TownScene: NSObject {
 
     /// Fired when a pet finishes the food in a bowl, so the model layer can
     /// clear the stored `hasFood` flag.
-    var onBowlEmptied: (() -> Void)?
+    var onBowlEmptied: ((PlacedDecoration) -> Bool)?
 
     /// Pick the nearest reachable free doorway, rather than the first house
     /// in the array. A house is reserved as soon as its pet starts travelling.
@@ -1513,19 +1524,62 @@ final class TownScene: NSObject {
         return best?.destination
     }
 
-    /// The first doghouse whose bowl currently has food in it. Reads the node's
-    /// own flag — this runs on the render thread, where SwiftData is off limits.
-    private func filledBowl() -> (cell: (col: Int, row: Int), world: SCNVector3)? {
-        for d in decorationNodes where d.type == .doghouse {
-            guard d.bowlHasFood,
-                  let bowl = d.childNode(withName: "bowl", recursively: true) else { continue }
-            let w = d.convertPosition(bowl.position, to: nil)
-            return ((d.gridX, d.gridY), SCNVector3(w.x, 0, w.z))
+    /// One reachable bowl per dog. The reservation covers walking and eating;
+    /// moving/storing the kennel invalidates the trip without consuming food.
+    private func filledBowl(for animal: AnimalNode) -> AnimalBowlDestination? {
+        let claims = Set(animalNodes.filter { $0 !== animal }.compactMap(\.claimedBowlID))
+        var best: (destination: AnimalBowlDestination, distance: Int)?
+        for house in decorationNodes where house.type == .doghouse && house.bowlHasFood {
+            let id = ObjectIdentifier(house)
+            guard !claims.contains(id), let bowl = house.childNode(withName: "bowl", recursively: true) else { continue }
+            let cell = AnimalCell(col: house.gridX, row: house.gridY)
+            let yaw = house.eulerAngles.y
+            let entrance = AnimalCell(col: cell.col + Int(sin(yaw).rounded()),
+                                      row: cell.row + Int(cos(yaw).rounded()))
+            let land: (AnimalCell) -> Bool = { [weak self] cell in
+                guard let self else { return false }
+                return self.isAnimalWalkable(col: cell.col, row: cell.row) && !self.isWater(col: cell.col, row: cell.row)
+            }
+            guard land(entrance), let route = AnimalNavigation.route(
+                from: AnimalCell(col: animal.col, row: animal.row), to: [entrance], isWalkable: land),
+                best == nil || route.count < best!.distance else { continue }
+            let position = house.position
+            let bowlWorld = bowl.worldPosition
+            let reach = DogFeedingMotion.muzzleReach(for: animal.kind)
+            let standing = SCNVector3(bowlWorld.x + sin(yaw) * reach, 0, bowlWorld.z + cos(yaw) * reach)
+            let valid: () -> Bool = { [weak self, weak house] in
+                guard let self, let house, self.decorationNodes.contains(where: { $0 === house }),
+                      house.bowlHasFood, house.gridX == cell.col, house.gridY == cell.row,
+                      abs(house.eulerAngles.y - yaw) < 0.01,
+                      hypot(house.position.x - position.x, house.position.z - position.z) < 0.01 else { return false }
+                return land(entrance)
+            }
+            let destination = AnimalBowlDestination(id: id, entrance: entrance, standingWorld: standing,
+                yaw: yaw + .pi, isValid: valid,
+                updateProgress: { [weak house] progress in house?.setBowlMealProgress(progress) },
+                consume: { [weak self, weak house] in
+                    guard valid(), let self, let house, let decoration = house.associatedDecoration,
+                          self.onBowlEmptied?(decoration) == true else { return false }
+                    house.setBowlFilled(false)
+                    return true
+                })
+            best = (destination, route.count)
         }
-        return nil
+        return best?.destination
+    }
+
+    /// A filled bowl gets noticed promptly, including by a sleeping pet.
+    func notifyBowlFilled() {
+        let candidates = animalNodes.filter(\.canNoticeFood).compactMap { animal -> (AnimalNode, Int)? in
+            guard let bowl = filledBowl(for: animal) else { return nil }
+            let distance = abs(animal.col - bowl.entrance.col) + abs(animal.row - bowl.entrance.row)
+            return (animal, distance)
+        }
+        candidates.min { $0.1 < $1.1 }?.0.noticeFood()
     }
 
     func removeAnimal(_ node: AnimalNode) {
+        node.stopLiving()
         animalNodes.removeAll { $0 === node }
         node.removeAllActions()
         node.runAction(.sequence([
@@ -2381,8 +2435,19 @@ final class DecorationNode: SCNNode, GridOccupant {
     /// Doghouse bowl: show or hide the kibble.
     func setBowlFilled(_ filled: Bool) {
         guard type == .doghouse else { return }
+        let changed = bowlHasFood != filled
         bowlHasFood = filled
-        childNode(withName: "bowlFood", recursively: true)?.isHidden = !filled
+        guard let food = childNode(withName: "bowlFood", recursively: true) else { return }
+        food.isHidden = !filled
+        if changed || !filled { food.childNodes.forEach { $0.isHidden = false } }
+    }
+
+    /// Visual portions only. The persisted full/empty flag changes on the final bite.
+    func setBowlMealProgress(_ progress: Double) {
+        guard bowlHasFood, let food = childNode(withName: "bowlFood", recursively: true) else { return }
+        let count = food.childNodes.count
+        let eaten = Int((Double(count) * min(1, max(0, progress)) + 0.00001).rounded(.down))
+        for (index, granule) in food.childNodes.enumerated() { granule.isHidden = index < eaten }
     }
 
     /// Where a pet should curl up inside this doghouse (world space offset from

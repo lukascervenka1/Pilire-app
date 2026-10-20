@@ -15,6 +15,7 @@ struct SettingsView: View {
     @State private var confirmReset = false
     @State private var resetDone = false
     @State private var language = Language.shared
+    @State private var showReleaseNotes = false
 
     var body: some View {
         NavigationStack {
@@ -104,7 +105,10 @@ struct SettingsView: View {
                 }
 
                 Section(L(S.settings.appSection)) {
-                    LabeledContent(L(S.settings.version), value: "1.0")
+                    Button { showReleaseNotes = true } label: {
+                        Label(L(S.whatsNew.settingsRow), systemImage: "sparkles")
+                    }
+                    LabeledContent(L(S.settings.version), value: ReleaseNotes.appVersion)
                 }
 
                 Section {
@@ -124,6 +128,7 @@ struct SettingsView: View {
                     Button(L(S.common.done)) { dismiss() }
                 }
             }
+            .sheet(isPresented: $showReleaseNotes) { ReleaseNotesSheet() }
             .confirmationDialog(L(S.settings.deleteAllQuestion),
                                 isPresented: $confirmReset, titleVisibility: .visible) {
                 Button(L(S.settings.deleteEverything), role: .destructive) { resetEverything() }
