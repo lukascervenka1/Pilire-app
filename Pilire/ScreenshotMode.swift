@@ -20,6 +20,7 @@ enum ScreenshotMode {
         case "sunny": .sunny
         case "rain": .rain
         case "fog": .fog
+        case "storm": .storm
         default: nil
         }
         #else

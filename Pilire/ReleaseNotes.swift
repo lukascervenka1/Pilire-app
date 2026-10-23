@@ -30,6 +30,8 @@ enum ReleaseNotes {
         Release(version: "1.1.0", items: [
         ReleaseNote(symbol: "speaker.wave.2.fill", tint: Color(red: 0.30, green: 0.58, blue: 0.45),
                     title: S.whatsNew.soundTitle, detail: S.whatsNew.soundDetail),
+        ReleaseNote(symbol: "cloud.bolt.rain.fill", tint: Color(red: 0.36, green: 0.44, blue: 0.62),
+                    title: S.whatsNew.stormTitle, detail: S.whatsNew.stormDetail),
         ReleaseNote(symbol: "cup.and.saucer.fill", tint: Color(red: 0.62, green: 0.42, blue: 0.30),
                     title: S.whatsNew.cafeTitle, detail: S.whatsNew.cafeDetail),
         ReleaseNote(symbol: "chevron.down.circle", tint: .indigo,

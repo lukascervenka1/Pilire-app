@@ -803,6 +803,11 @@ enum S {
             cs: "Ptáci ve dne i ti, kdo proletí, cvrčci v noci, déšť, mlha a praskající oheň, k tomu měkké tóny, které se pomalu mění. Jemné zvuky ti dají vědět i při splnění pilíře, stavění, otáčení budov nebo otevření truhly. Vypneš je v Nastavení.",
             sk: "Vtáky vo dne aj tie, čo preletia, cvrčky v noci, dážď, hmla a praskajúci oheň, k tomu mäkké tóny, ktoré sa pomaly menia. Jemné zvuky ti dajú vedieť aj pri splnení piliera, stavaní, otáčaní budov alebo otvorení truhlice. Vypneš ich v Nastaveniach.",
             en: "Birds by day, including the ones flying past, crickets at night, rain, fog and a crackling fire, over soft tones that slowly shift. Gentle sounds also mark finishing a pillar, building, turning a building and opening the chest. Turn them off in Settings.")
+        static let stormTitle = T(cs: "Bouřka nad městem", sk: "Búrka nad mestom", en: "Storms over town")
+        static let stormDetail = T(
+            cs: "Občas se přižene bouřka: déšť bičuje střechy, nebe se rozsvítí bleskem a v dálce zahřmí. V noci se tu a tam ozve sova. Ptáci a příroda zní nahlas zblízka a s oddálením kamery utichají.",
+            sk: "Občas sa prirúti búrka: dážď bičuje strechy, oblohu rozžiari blesk a v diaľke zahrmí. V noci sa tu a tam ozve sova. Vtáky a príroda znejú nahlas zblízka a s oddialením kamery utíchajú.",
+            en: "Now and then a storm rolls in: rain lashes the roofs, lightning lights the sky and thunder rumbles far off. At night an owl calls now and then. Birds and nature sound loudest up close and fade as you zoom out.")
         static let cafeTitle = T(cs: "Kavárna, topoly a lampy", sk: "Kaviareň, topole a lampy",
                                  en: "A café, poplars and lamps")
         static let cafeDetail = T(

@@ -4,6 +4,8 @@ import SwiftData
 struct ContentView: View {
     @Environment(\.modelContext) private var ctx
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityDimFlashingLights) private var dimFlashingLights
     @Query(sort: \Building.builtDate)              private var buildings:    [Building]
     @Query(sort: \DayRecord.date, order: .reverse) private var dayRecords:   [DayRecord]
     @Query(sort: \PlacedDecoration.placedDate)     private var decorations:  [PlacedDecoration]
@@ -81,7 +83,7 @@ struct ContentView: View {
                 .toolbar(.hidden, for: .tabBar)
                 .tag(0)
                 .onChange(of: tab) { _, newTab in
-                    scene.setRendering(active: newTab == 0)
+                    scene.setRendering(active: scenePhase == .active && newTab == 0)
                     // Coming back to the map: re-read the clock so fires and
                     // bedtime match real time without restarting the app.
                     if newTab == 0 { scene.refreshTimeOfDay() }
@@ -272,6 +274,8 @@ struct ContentView: View {
             activateForCurrentDay(refreshDailyView: true)
             scene.refreshTimeOfDay()
         }
+        .onChange(of: reduceMotion) { _, _ in scene.refreshWeatherAccessibility() }
+        .onChange(of: dimFlashingLights) { _, _ in scene.refreshWeatherAccessibility() }
         // Ambience belongs to the town: it fades in on the map and out elsewhere.
         .onChange(of: tab) { _, _ in updateAmbience() }
         .onChange(of: hasSeenOnboarding) { _, seen in
@@ -663,7 +667,9 @@ struct ContentView: View {
     // MARK: - Scene setup
 
     private func updateAmbience() {
-        SoundManager.shared.setListening(scenePhase == .active && tab == 0)
+        let active = scenePhase == .active && tab == 0
+        scene.setRendering(active: active)
+        SoundManager.shared.setListening(active)
     }
 
     private func configureScene() {
@@ -672,6 +678,7 @@ struct ContentView: View {
 
         scene.onAtmosphereChanged = { SoundManager.shared.setAtmosphere(scene.atmosphere) }
         SoundManager.shared.setAtmosphere(scene.atmosphere)
+        SoundManager.shared.setZoom(orthographicScale: scene.cameraZoom)
         updateAmbience()
 
         scene.setMapSize(TownScene.mapSize(forTier: settings.mapTier))

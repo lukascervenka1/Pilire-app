@@ -277,6 +277,7 @@ Město teď zní a pár věcí jsme vylepšili:
 
 • Ambientní zvuky: ptáci ve dne i ti, kdo proletí, cvrčci v noci, déšť, mlha, praskající oheň a měkké tóny, které se pomalu mění.
 • Jemné zvukové efekty při splnění pilíře, stavění, otáčení budov, otevření truhly a novém odznaku. Obojí vypneš v Nastavení.
+• Bouřka: občas se přižene déšť s blesky a vzdáleným hromem, v noci se ozve sova. Příroda zní nahlas zblízka a s oddálením kamery utichá.
 • Nová kavárna s cukrárnou, štíhlé topoly a pouliční lampy, které se po setmění rozsvítí. Kachnička v rybníčku dostala nový kabát.
 • Seznam pravidelných návyků sbalíš ťuknutím na nadpis, takže uzavření dne máš hned po ruce.
 • Opravy: seřazené pilíře si drží pořadí i po zamčení telefonu, uzavření dne se při podržení nepřeruší a kachnička plave hlavou napřed.
@@ -288,6 +289,7 @@ Mesto teraz znie a pár vecí sme vylepšili:
 
 • Ambientné zvuky: vtáky vo dne aj tie, čo preletia, cvrčky v noci, dážď, hmla, praskajúci oheň a mäkké tóny, ktoré sa pomaly menia.
 • Jemné zvukové efekty pri splnení piliera, stavaní, otáčaní budov, otvorení truhlice a novom odznaku. Oboje vypneš v Nastaveniach.
+• Búrka: občas sa prirúti dážď s bleskami a vzdialeným hromom, v noci sa ozve sova. Príroda znie nahlas zblízka a s oddialením kamery utícha.
 • Nová kaviareň s cukrárňou, štíhle topole a pouličné lampy, ktoré sa po zotmení rozsvietia. Kačička v rybníčku dostala nový šat.
 • Zoznam pravidelných návykov zbalíš ťuknutím na nadpis, takže uzavretie dňa máš hneď poruke.
 • Opravy: zoradené piliere si držia poradie aj po zamknutí telefónu, uzavretie dňa sa pri podržaní nepreruší a kačička pláva hlavou dopredu.
@@ -299,6 +301,7 @@ Your town has sound now, plus a few improvements:
 
 • Ambient sound: birds by day, including the ones flying past, crickets at night, rain, fog, a crackling fire and soft tones that slowly shift.
 • Gentle sound effects for finishing a pillar, building, turning a building, opening the chest and earning a badge. Turn either off in Settings.
+• Storms: now and then rain rolls in with lightning and distant thunder, and an owl calls at night. Nature sounds loudest up close and fades as you zoom out.
 • A new café and patisserie, slender poplars and street lamps that light up after dusk. The pond duck got a new look.
 • Tap the “Recurring habits” heading to fold the list, so closing the day is right there.
 • Fixes: reordered pillars keep their order after the phone locks, closing the day no longer stops half way, and the duck swims head first.

@@ -114,6 +114,11 @@ final class TownScene: NSObject {
     private var sunLight: SCNLight?
     private var ambLight: SCNLight?
     private var daylightTimer: Timer?
+    private var stormEffects: StormWeatherEffects?
+    private(set) var renderingActive = true
+    private var weatherConfigured = false
+    private var appliedBuildingLightPhase: DaylightPhase?
+    private var ambientMotionAllowed = !UIAccessibility.isReduceMotionEnabled
     private(set) var weather: TownWeather = .sunny
     private(set) var daylight: DaylightPhase = .day
 
@@ -132,8 +137,8 @@ final class TownScene: NSObject {
         setupCamera()
         buildIsland()
         scatterGroundDetails()
-        applyDaylight()
         applyWeather()
+        applyDaylight()
         setupBirds()
         setupButterflies()
         setupFireflies()
@@ -246,11 +251,15 @@ final class TownScene: NSObject {
         guard n != cols else { return }
         cols = n
         rebuildGround()
+        applyWeather(force: true)
+        applyDaylight()
     }
 
     /// Pause the render loop (and thus all animations/skinning) when the map
     /// isn't on screen — no point burning the GPU behind another tab.
     func setRendering(active: Bool) {
+        renderingActive = active
+        stormEffects?.setActive(active)
         scnView?.isPlaying = active
     }
 
@@ -345,7 +354,6 @@ final class TownScene: NSObject {
 
     private func applyDaylight(now: Date = .now) {
         let hour = ScreenshotMode.currentHour(at: now)
-        let previous = daylight
         daylight = DaylightPhase(hour: hour)
 
         switch daylight {
@@ -370,17 +378,44 @@ final class TownScene: NSObject {
             ambLight?.intensity = 380
             ambLight?.color = UIColor(red: 0.61, green: 0.68, blue: 0.84, alpha: 1)
         }
-        if previous != daylight {
+        // Compose weather with the current time every refresh. Applying the
+        // weather only once let the minute timer restore sunny illumination.
+        sunLight?.shadowRadius = weather == .storm ? 12 : 7
+        sunLight?.shadowColor = UIColor(red: 0.10, green: 0.14, blue: 0.10,
+                                        alpha: weather == .storm ? 0.12 : 0.30)
+        switch weather {
+        case .sunny: break
+        case .rain:
+            sunLight?.intensity *= 0.65
+            ambLight?.color = UIColor(red: 0.72, green: 0.76, blue: 0.82, alpha: 1)
+        case .fog:
+            sunLight?.intensity *= 0.8
+        case .storm:
+            sunLight?.intensity *= 0.47
+            sunLight?.color = UIColor(red: 0.76, green: 0.82, blue: 0.86, alpha: 1)
+            ambLight?.intensity *= 0.90
+            ambLight?.color = UIColor(red: 0.68, green: 0.75, blue: 0.78, alpha: 1)
+            scnScene.fogColor = skyColors.last!
+        }
+        stormEffects?.apply(daylight)
+        if appliedBuildingLightPhase != buildingLightPhase {
+            appliedBuildingLightPhase = buildingLightPhase
             SCNTransaction.begin()
             SCNTransaction.animationDuration = UIAccessibility.isReduceMotionEnabled ? 0 : 1.4
-            for building in buildingNodes { building.nightLighting?.apply(daylight) }
-            for decoration in decorationNodes { decoration.streetLighting?.apply(daylight) }
-            refreshLocalBuildingLights()
+            for building in buildingNodes { building.nightLighting?.apply(buildingLightPhase) }
+            for decoration in decorationNodes { decoration.streetLighting?.apply(buildingLightPhase) }
             SCNTransaction.commit()
         }
+        refreshLocalBuildingLights()
         refreshFirePits()
         updateSkyBackground()
         onAtmosphereChanged?()
+    }
+
+    /// Low window and lantern glow gives the overcast town a little warmth,
+    /// without changing the clock used by animals, fires or the soundscape.
+    private var buildingLightPhase: DaylightPhase {
+        weather == .storm && daylight == .day ? .dawn : daylight
     }
 
     /// What the town sounds like right now: weather, time of day and a lit fire.
@@ -392,8 +427,9 @@ final class TownScene: NSObject {
     /// Fired when the weather, time of day or the set of fire pits changes.
     var onAtmosphereChanged: (() -> Void)?
 
-    /// Share six local lights between buildings and street lamps. Every lamp
-    /// retains its luminous glass and ground pool even outside this budget.
+    /// Share six local lights between buildings and street lamps (five during
+    /// storms, reserving one for lightning). Every lamp retains its luminous
+    /// glass and ground pool even outside this budget.
     func refreshLocalBuildingLights() {
         let focus = cameraRig.position
         let candidates: [SCNNode] = buildingNodes.filter { $0.isComplete }.map { $0 as SCNNode }
@@ -403,7 +439,7 @@ final class TownScene: NSObject {
             let da = (a.x-focus.x)*(a.x-focus.x) + (a.z-focus.z)*(a.z-focus.z)
             let db = (b.x-focus.x)*(b.x-focus.x) + (b.z-focus.z)*(b.z-focus.z)
             return da < db
-        }.prefix(6)
+        }.prefix(weather == .storm ? 5 : 6)
         let active = Set(nearest.map { ObjectIdentifier($0) })
         for building in buildingNodes {
             building.nightLighting?.setLocalLightEnabled(active.contains(ObjectIdentifier(building)))
@@ -415,53 +451,77 @@ final class TownScene: NSObject {
 
     /// Re-read the clock — call when the map comes back on screen so fires and
     /// bedtime follow real time without a restart.
-    func refreshTimeOfDay() {
-        applyDaylight()
-        let canFly = weather != .rain && daylight != .night && !UIAccessibility.isReduceMotionEnabled
-        let birds = scnScene.rootNode.childNodes.filter { $0.name == "bird" }
-        if canFly, birds.isEmpty { setupBirds() }
-        for bird in birds { bird.isHidden = !canFly }
+    func refreshTimeOfDay(now: Date = .now) {
+        let previousWeather = weather, previousDaylight = daylight
+        let motionAllowed = !UIAccessibility.isReduceMotionEnabled
+        applyWeather(now: now)
+        applyDaylight(now: now)
+        stormEffects?.setActive(renderingActive)
+        if weather != previousWeather || daylight != previousDaylight || motionAllowed != ambientMotionAllowed {
+            scnScene.rootNode.childNodes.filter { $0.name == "bird" || $0.name == "ambientLife" }
+                .forEach { $0.removeFromParentNode() }
+            ambientMotionAllowed = motionAllowed
+            setupBirds(); setupButterflies(); setupFireflies()
+        }
     }
 
-    // MARK: - Weather (seeded per day: mostly sun, sometimes rain or fog)
+    /// Also clears an in-progress pulse when the user enables dimmed flashes.
+    func refreshWeatherAccessibility() {
+        stormEffects?.setActive(renderingActive)
+        refreshTimeOfDay()
+    }
 
-    private func applyWeather(now: Date = .now) {
-        let day = Calendar.current.ordinality(of: .day, in: .year, for: now) ?? 0
-        let year = Calendar.current.component(.year, from: now)
+    // MARK: - Weather (stable for each local day)
 
-        // splitmix64 finaliser. A single LCG step over consecutive days left the
-        // roll walking smoothly instead of jumping, so the weather came in long
-        // blocks — six foggy days in a row, then four of rain. Same yearly mix,
-        // properly shuffled: runs are now at most three days.
-        var z = UInt64(day * 131 + year * 17) &+ 0x9E37_79B9_7F4A_7C15
-        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
-        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
-        z = z ^ (z >> 31)
-        let roll = Double(z & 0xFFFF) / Double(0xFFFF)
-
-        weather = ScreenshotMode.weather ?? (roll < 0.70 ? .sunny : (roll < 0.85 ? .rain : .fog))
+    private func applyWeather(now: Date = .now, force: Bool = false) {
+        let next = ScreenshotMode.weather ?? TownWeather.seeded(at: now)
+        guard force || !weatherConfigured || next != weather else { return }
+        weatherConfigured = true
+        weather = next
+        stormEffects?.setActive(false)
+        stormEffects?.root.removeFromParentNode()
+        stormEffects = nil
+        scnScene.rootNode.childNodes.filter { $0.name == "rain" }.forEach { $0.removeFromParentNode() }
+        scnScene.fogStartDistance = 0
+        scnScene.fogEndDistance = 0
+        scnScene.fogDensityExponent = 1
 
         switch weather {
-        case .sunny:
-            break
-        case .rain:
-            sunLight?.intensity = (sunLight?.intensity ?? 1000) * 0.65
-            ambLight?.color = UIColor(red: 0.72, green: 0.76, blue: 0.82, alpha: 1)
-            addRain()
+        case .sunny: break
+        case .rain: addRain()
         case .fog:
-            sunLight?.intensity = (sunLight?.intensity ?? 1000) * 0.8
             scnScene.fogColor = UIColor(red: 0.88, green: 0.91, blue: 0.90, alpha: 1)
             scnScene.fogStartDistance = 52
-            scnScene.fogEndDistance   = 82
+            scnScene.fogEndDistance = 82
             scnScene.fogDensityExponent = 1.5
+        case .storm:
+            addRain()
+            scnScene.fogStartDistance = 56
+            scnScene.fogEndDistance = 94
+            scnScene.fogDensityExponent = 1.2
+            let effects = StormWeatherEffects(islandSize: cols)
+            effects.onLightning = { SoundManager.shared.playDistantThunder() }
+            scnScene.rootNode.addChildNode(effects.root)
+            effects.apply(daylight)
+            effects.setActive(renderingActive)
+            stormEffects = effects
         }
-        updateSkyBackground()
     }
 
     /// Shared with SwiftUI's backing view. Keeping the sky in the 3D render
     /// target lets translucent stone and water blend in linear color space;
     /// compositing those pixels over a separate UI gradient creates pale rims.
     var skyColors: [UIColor] {
+        if weather == .storm {
+            let rgb: [(CGFloat, CGFloat, CGFloat)]
+            switch daylight {
+            case .dawn: rgb = [(0.38, 0.40, 0.49), (0.57, 0.59, 0.64), (0.76, 0.77, 0.74)]
+            case .day: rgb = [(0.36, 0.43, 0.49), (0.52, 0.60, 0.63), (0.73, 0.78, 0.75)]
+            case .dusk: rgb = [(0.30, 0.33, 0.43), (0.48, 0.49, 0.55), (0.66, 0.66, 0.64)]
+            case .night: rgb = [(0.10, 0.14, 0.20), (0.21, 0.28, 0.32), (0.38, 0.46, 0.45)]
+            }
+            return rgb.map { UIColor(red: $0.0, green: $0.1, blue: $0.2, alpha: 1) }
+        }
         if weather == .fog {
             return [UIColor(red: 0.80, green: 0.84, blue: 0.84, alpha: 1),
                     UIColor(red: 0.87, green: 0.90, blue: 0.88, alpha: 1)]
@@ -495,17 +555,19 @@ final class TownScene: NSObject {
 
     private func addRain() {
         let rain = SCNParticleSystem()
-        rain.birthRate = 220
+        let storm = weather == .storm
+        rain.birthRate = storm ? CGFloat(cols * cols) * 2.0 : 220
         rain.particleLifeSpan = 1.4
         rain.particleVelocity = 9
         rain.particleVelocityVariation = 2
-        rain.emittingDirection = SCNVector3(0, -1, 0)
+        rain.emittingDirection = storm ? SCNVector3(-0.24, -1, 0.08) : SCNVector3(0, -1, 0)
         rain.spreadingAngle = 2
-        rain.particleSize = 0.012
+        rain.particleSize = storm ? 0.010 : 0.012
         rain.particleSizeVariation = 0.004
-        rain.stretchFactor = 0.035
+        rain.stretchFactor = storm ? 0.025 : 0.035
         rain.particleColor = UIColor(red: 0.75, green: 0.82, blue: 0.92, alpha: 0.20)
-        rain.emitterShape = SCNBox(width: 30, height: 0.1, length: 30, chamferRadius: 0)
+        let span = storm ? CGFloat(cols + 5) : 30
+        rain.emitterShape = SCNBox(width: span, height: 0.1, length: span, chamferRadius: 0)
         rain.birthLocation = .volume
         rain.isAffectedByGravity = false
 
@@ -520,7 +582,7 @@ final class TownScene: NSObject {
     // MARK: - Birds (occasional fly-over)
 
     private func setupBirds() {
-        guard weather != .rain, daylight != .night, !UIAccessibility.isReduceMotionEnabled else { return }
+        guard !weather.hasPrecipitation, daylight != .night, !UIAccessibility.isReduceMotionEnabled else { return }
         for i in 0..<2 {
             let bird = AmbientBirdNode()
             bird.scale = SCNVector3(0.78,0.78,0.78)
@@ -605,7 +667,7 @@ final class TownScene: NSObject {
 
     /// Slow glowing fireflies drifting over the night meadow.
     private func setupFireflies() {
-        guard daylight == .night, weather != .rain,
+        guard daylight == .night, !weather.hasPrecipitation,
               !UIAccessibility.isReduceMotionEnabled else { return }
 
         let half = Float(cols) / 2 - 2
@@ -1347,7 +1409,7 @@ final class TownScene: NSObject {
         scnScene.rootNode.addChildNode(node)
         buildingNodes.append(node)
         refreshGroundDetails()
-        node.nightLighting?.apply(daylight)
+        node.nightLighting?.apply(buildingLightPhase)
         refreshLocalBuildingLights()
         refreshRoadAccess()
 
@@ -1398,7 +1460,7 @@ final class TownScene: NSObject {
         if type == .birdFeeder { node.startFeederVisits() }
         if type == .firePit { node.setFireLit(isAfterDark); onAtmosphereChanged?() }
         if type == .streetLamp {
-            node.streetLighting?.apply(daylight)
+            node.streetLighting?.apply(buildingLightPhase)
             refreshLocalBuildingLights()
         }
         return node
@@ -1842,10 +1904,14 @@ final class TownScene: NSObject {
         }
     }
 
+    /// The map camera's current orthographic scale (smaller = closer).
+    var cameraZoom: Double { cameraNode.camera?.orthographicScale ?? 7.5 }
+
     func handlePinch(scale: CGFloat, began: inout CGFloat) {
         guard let cam = cameraNode.camera else { return }
         if began == 0 { began = cam.orthographicScale }
         cam.orthographicScale = min(16, max(3.5, began / Double(scale)))
+        SoundManager.shared.setZoom(orthographicScale: cam.orthographicScale)
     }
 
     /// One paint step of a road stroke — converts the touch to a grid cell and
@@ -6609,7 +6675,7 @@ struct TownSceneView: UIViewRepresentable {
         view.backgroundColor = .clear
         view.antialiasingMode = .multisampling2X   // 4X is costly with skinned animals
         view.allowsCameraControl = false
-        view.isPlaying = true
+        view.isPlaying = scene.renderingActive
         view.preferredFramesPerSecond = 60
         scene.scnView = view
 
@@ -6685,8 +6751,6 @@ struct TownSceneView: UIViewRepresentable {
 }
 
 // MARK: - Ambient state
-
-enum TownWeather { case sunny, rain, fog }
 
 enum DaylightPhase {
     case dawn, day, dusk, night
