@@ -54,7 +54,7 @@ final class SoundManager {
             case .crickets:         0.55
             case .rain:             0.60
             case .fog:              0.45
-            case .fire:             0.50
+            case .fire:             0.32   // a quiet crackle in the background
             }
         }
     }
