@@ -21,7 +21,10 @@ struct DailyView: View {
     @State private var newTime = Self.nextFullHour()
     @State private var notice: String?
     /// Holding a pillar opens its menu, so reordering gets its own mode with handles.
-    @State private var reorderingPillars = false
+    @State private var pillarsEditMode: EditMode = .inactive
+    private var reorderingPillars: Bool { pillarsEditMode.isEditing }
+    /// Long habit lists push "close the day" far down; folding them keeps it near.
+    @AppStorage("habitsCollapsed") private var habitsCollapsed = false
     @State private var timeEdit: TimeEdit?
     @State private var pillarEdit: PillarEdit?
     @FocusState private var focusedInput: PillarInput?
@@ -88,7 +91,7 @@ struct DailyView: View {
                 .contentMargins(.bottom, focusedInput == nil ? (tutorial.current == nil ? 96 : 220) : 24,
                                 for: .scrollContent)
                 .scrollDismissesKeyboard(.interactively)
-                .environment(\.editMode, .constant(reorderingPillars ? .active : .inactive))
+                .environment(\.editMode, $pillarsEditMode)
                 .background(Theme.creamGradient.ignoresSafeArea())
                 .navigationTitle(L(S.daily.title))
                 .toolbar {
@@ -247,7 +250,7 @@ struct DailyView: View {
                 Spacer()
                 if (day.pillars.count > 1 && !day.isCompleted) || reorderingPillars {
                     Button {
-                        withAnimation { reorderingPillars.toggle() }
+                        withAnimation { pillarsEditMode = reorderingPillars ? .inactive : .active }
                     } label: {
                         Label(reorderingPillars ? L(S.common.done) : L(S.daily.reorder),
                               systemImage: reorderingPillars ? "checkmark" : "arrow.up.arrow.down")
@@ -357,7 +360,7 @@ struct DailyView: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.indigo)
                 }
-            } else {
+            } else if !habitsCollapsed {
                 ForEach(habits) { habit in
                     Button {
                         editHabit = habit
@@ -393,14 +396,43 @@ struct DailyView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                .onMove { from, to in Habit.reorder(habits, from: from, to: to) }
+                .onMove { from, to in
+                    Habit.reorder(habits, from: from, to: to)
+                    ctx.saveChanges()
+                }
             }
         } header: {
             HStack {
-                Text(L(S.daily.habitsHeader))
-                    .font(.system(.subheadline, design: .rounded).weight(.bold))
-                    .foregroundStyle(Theme.creamLabel)
-                    .textCase(nil)
+                Button {
+                    withAnimation(.easeInOut(duration: 0.25)) { habitsCollapsed.toggle() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(L(S.daily.habitsHeader))
+                            .font(.system(.subheadline, design: .rounded).weight(.bold))
+                            .foregroundStyle(Theme.creamLabel)
+                        if !habits.isEmpty {
+                            Image(systemName: "chevron.down")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(Theme.creamLabel)
+                                .rotationEffect(.degrees(habitsCollapsed ? -90 : 0))
+                            if habitsCollapsed {
+                                Text("\(habits.count)")
+                                    .font(.caption.weight(.semibold).monospacedDigit())
+                                    .foregroundStyle(Theme.creamLabel)
+                                    .padding(.horizontal, 7).padding(.vertical, 2)
+                                    .background(Theme.creamLabel.opacity(0.12), in: Capsule())
+                            }
+                        }
+                    }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(habits.isEmpty)
+                .textCase(nil)
+                .accessibilityLabel(L(S.daily.habitsHeader))
+                .accessibilityValue(habitsCollapsed ? L(S.daily.collapsed) : L(S.daily.expanded))
+                .accessibilityHint(L(S.daily.collapseHint))
                 Spacer()
                 if !habits.isEmpty {
                     Button {
@@ -416,7 +448,7 @@ struct DailyView: View {
                 }
             }
         } footer: {
-            if !habits.isEmpty {
+            if !habits.isEmpty && !habitsCollapsed {
                 Text(L(S.daily.habitsFooter) + " " + L(S.daily.reorderHint))
             }
         }
@@ -525,7 +557,8 @@ struct DailyView: View {
 
     private func ensureToday() {
         let start = Calendar.current.startOfDay(for: .now)
-        if let existing = records.first(where: { Calendar.current.isDate($0.date, inSameDayAs: start) }) {
+        let sameDay = records.filter { Calendar.current.isDate($0.date, inSameDayAs: start) }
+        if let existing = mergeDuplicates(sameDay) {
             today = existing
         } else {
             let rec = DayRecord(date: start)
@@ -536,6 +569,33 @@ struct DailyView: View {
             fillHabits(into: day)
             syncHabitReminders(day)
         }
+        // Saved straight away: an unsaved day could be missed by a fresh
+        // query after the app returns from the background, and a second
+        // record for the same day would then show its own, older order.
+        ctx.saveChanges()
+    }
+
+    /// Two records for one day show up as a list that keeps "reshuffling"
+    /// (each holds its own order). Keep the fuller one and fold the rest in.
+    private func mergeDuplicates(_ sameDay: [DayRecord]) -> DayRecord? {
+        guard sameDay.count > 1 else { return sameDay.first }
+        let ranked = sameDay.sorted {
+            ($0.pillars.count, $0.completedCount) > ($1.pillars.count, $1.completedCount)
+        }
+        let keep = ranked[0]
+        for extra in ranked.dropFirst() {
+            for p in extra.pillars.sorted(by: { $0.order < $1.order })
+            where !keep.pillars.contains(where: { $0.id == p.id || $0.text == p.text }) {
+                var moved = p
+                moved.order = keep.pillars.count
+                keep.pillars.append(moved)
+            }
+            for b in extra.buildings { b.dayRecord = keep }
+            for h in extra.skippedHabits where !keep.skippedHabits.contains(h) { keep.skippedHabits.append(h) }
+            keep.isCompleted = keep.isCompleted || extra.isCompleted
+            ctx.delete(extra)
+        }
+        return keep
     }
 
     /// Turn an existing task text into a recurring habit and open the editor
@@ -925,6 +985,7 @@ struct DailyView: View {
         if !wasCompleted {
             // Completing: award wood (pool tasks earn +50 %), remember the amount
             Haptics.tap()
+            SoundManager.shared.play(.pillarDone)
             NotificationManager.cancelPillarReminder(id: id)   // done → no reminder needed
             let earned = settings.awardTaskWood(isFromPool: day.pillars[i].isFromPool)
             day.pillars[i].woodAwarded = earned
@@ -1157,6 +1218,9 @@ struct HoldToCloseButton: View {
     @State private var progress: CGFloat = 0
     @State private var isHolding = false
     @State private var didFire = false
+    /// The finger wandered too far; ignore it until it lifts.
+    @State private var abandoned = false
+    @State private var holdTask: Task<Void, Never>?
 
     private let holdDuration: Double = 1.1
 
@@ -1187,11 +1251,26 @@ struct HoldToCloseButton: View {
         .contentShape(RoundedRectangle(cornerRadius: Theme.cardRadius))
         .scaleEffect(isHolding ? 0.98 : 1)
         .animation(.easeOut(duration: 0.15), value: isHolding)
-        .onLongPressGesture(minimumDuration: holdDuration, maximumDistance: 40) {
-            fire()
-        } onPressingChanged: { pressing in
-            if pressing { beginHold() } else { endHold() }
-        }
+        // A plain long press inside the list lost out to scrolling as soon
+        // as the finger drifted a few points, so the bar stopped half way.
+        // This claims the touch from the first contact instead; the timer,
+        // not the animation, decides when the day closes.
+        .highPriorityGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    guard !abandoned else { return }
+                    if hypot(value.translation.width, value.translation.height) > 90 {
+                        abandoned = true
+                        endHold()
+                    } else {
+                        beginHold()
+                    }
+                }
+                .onEnded { _ in
+                    abandoned = false
+                    endHold()
+                }
+        )
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(isCompleted ? L(S.daily.dayClosed) : L(S.daily.closeDayShort))
         .accessibilityHint(isCompleted ? "" : L(S.daily.closeDay))
@@ -1209,6 +1288,12 @@ struct HoldToCloseButton: View {
         didFire = false
         Haptics.tap()
         withAnimation(.linear(duration: holdDuration)) { progress = 1 }
+        holdTask?.cancel()
+        holdTask = Task {
+            try? await Task.sleep(for: .seconds(holdDuration))
+            guard !Task.isCancelled, isHolding else { return }
+            fire()
+        }
     }
 
     private func fire() {
@@ -1221,7 +1306,9 @@ struct HoldToCloseButton: View {
     }
 
     private func endHold() {
-        // If the long press already fired, ignore; otherwise it was an early release.
+        holdTask?.cancel()
+        holdTask = nil
+        // If the hold already fired, ignore; otherwise it was an early release.
         guard !didFire else { return }
         isHolding = false
         withAnimation(.easeOut(duration: 0.25)) { progress = 0 }

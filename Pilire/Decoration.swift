@@ -43,9 +43,11 @@ enum DecorationItem: String, Codable, CaseIterable {
     case road
     case tree          // jehličnan
     case leafTree      // listnáč
+    case poplar        // vysoký štíhlý topol do alejí
     case fruitTree     // ovocný strom (jabloň / švestka / pomerančovník)
     case bush          // keř (3 podoby)
     case bench
+    case streetLamp    // pouliční lucerna, svítí po setmění
     case fountain
     case pond          // rybníček s kachničkou (2 pole)
     case doghouse      // psí bouda — pes v ní v noci spí, miska na žrádlo
@@ -72,7 +74,7 @@ enum DecorationItem: String, Codable, CaseIterable {
     /// small pool so a row of them never looks copy-pasted.
     var variantCount: Int {
         switch self {
-        case .fruitTree, .bush: 3
+        case .fruitTree, .bush, .poplar: 3
         default:                1
         }
     }
@@ -81,7 +83,7 @@ enum DecorationItem: String, Codable, CaseIterable {
     /// Anything with a real footprint (roads, pond, fountain) stays on centres.
     var canUseCornerAnchor: Bool {
         switch self {
-        case .tree, .leafTree, .fruitTree, .bush, .bench, .birdFeeder,
+        case .tree, .leafTree, .poplar, .fruitTree, .bush, .bench, .streetLamp, .birdFeeder,
              .pumpkins, .scarecrow, .christmasTree, .snowman:          true
         case .road, .fountain, .pond, .doghouse, .firePit:             false
         }
@@ -93,9 +95,11 @@ enum DecorationItem: String, Codable, CaseIterable {
         case .road:       L(T(cs: "Cesta", sk: "Cesta", en: "Path"))
         case .tree:       L(T(cs: "Jehličnan", sk: "Ihličnan", en: "Pine tree"))
         case .leafTree:   L(T(cs: "Listnáč", sk: "Listnáč", en: "Leafy tree"))
+        case .poplar:     L(T(cs: "Topol", sk: "Topoľ", en: "Poplar"))
         case .fruitTree:  L(T(cs: "Ovocný strom", sk: "Ovocný strom", en: "Fruit tree"))
         case .bush:       L(T(cs: "Keř", sk: "Ker", en: "Bush"))
         case .bench:      L(T(cs: "Lavička", sk: "Lavička", en: "Bench"))
+        case .streetLamp: L(T(cs: "Pouliční lampa", sk: "Pouličná lampa", en: "Street lamp"))
         case .fountain:   L(T(cs: "Fontána", sk: "Fontána", en: "Fountain"))
         case .pond:       L(T(cs: "Rybníček", sk: "Rybníček", en: "Pond"))
         case .doghouse:   L(T(cs: "Psí bouda", sk: "Psia búda", en: "Doghouse"))
@@ -113,9 +117,11 @@ enum DecorationItem: String, Codable, CaseIterable {
         case .road:       "road.lanes"
         case .tree:       "tree.fill"
         case .leafTree:   "tree.fill"
+        case .poplar:     "tree.fill"
         case .fruitTree:  "tree.circle.fill"
         case .bush:       "leaf.fill"
         case .bench:      "chair.lounge.fill"
+        case .streetLamp: "lightbulb.fill"
         case .fountain:   "drop.fill"
         case .pond:       "water.waves"
         case .doghouse:   "dog.fill"
@@ -133,9 +139,11 @@ enum DecorationItem: String, Codable, CaseIterable {
         case .road:       (0.64, 0.55, 0.42)
         case .tree:       (0.30, 0.52, 0.32)
         case .leafTree:   (0.42, 0.64, 0.34)
+        case .poplar:     (0.45, 0.58, 0.31)
         case .fruitTree:  (0.82, 0.42, 0.34)
         case .bush:       (0.48, 0.68, 0.40)
         case .bench:      (0.62, 0.45, 0.30)
+        case .streetLamp: (0.73, 0.55, 0.30)
         case .fountain:   (0.36, 0.62, 0.80)
         case .pond:       (0.30, 0.58, 0.78)
         case .doghouse:   (0.72, 0.48, 0.28)
@@ -153,9 +161,11 @@ enum DecorationItem: String, Codable, CaseIterable {
         case .road:       20
         case .tree:       15
         case .leafTree:   15
+        case .poplar:     25
         case .fruitTree:  25
         case .bush:       8
         case .bench:      15
+        case .streetLamp: 45
         case .fountain:   40
         case .pond:       60
         case .doghouse:   70
@@ -184,6 +194,10 @@ enum DecorationItem: String, Codable, CaseIterable {
         case .leafTree:
             L(T(cs: "Košatá koruna do parku", sk: "Košatá koruna do parku",
                 en: "A broad crown for the park"))
+        case .poplar:
+            L(T(cs: "Vysoký, štíhlý strom do alejí a mezi části města",
+                sk: "Vysoký, štíhly strom do alejí a medzi časti mesta",
+                en: "A tall, slender tree for avenues and garden borders"))
         case .fruitTree:
             L(T(cs: "Jabloň, švestka nebo pomerančovník, co ti padne",
                 sk: "Jabloň, slivka alebo pomarančovník, čo ti padne",
@@ -194,6 +208,10 @@ enum DecorationItem: String, Codable, CaseIterable {
                 en: "Small greenery anywhere, never quite the same"))
         case .bench:
             L(T(cs: "Místo k odpočinku", sk: "Miesto na oddych", en: "A place to rest"))
+        case .streetLamp:
+            L(T(cs: "Teplé světlo podél cest. Po setmění se rozsvítí",
+                sk: "Teplé svetlo pozdĺž ciest. Po zotmení sa rozsvieti",
+                en: "Warm light along your paths. Turns on after dusk"))
         case .fountain:
             L(T(cs: "Dominanta náměstí", sk: "Dominanta námestia",
                 en: "The centrepiece of a square"))

@@ -27,6 +27,16 @@ enum ReleaseNotes {
     /// Newest first. Add a release at the top with the same version string as
     /// MARKETING_VERSION; a version missing here shows no popup.
     static let releases: [Release] = [
+        Release(version: "1.1.0", items: [
+        ReleaseNote(symbol: "speaker.wave.2.fill", tint: Color(red: 0.30, green: 0.58, blue: 0.45),
+                    title: S.whatsNew.soundTitle, detail: S.whatsNew.soundDetail),
+        ReleaseNote(symbol: "cup.and.saucer.fill", tint: Color(red: 0.62, green: 0.42, blue: 0.30),
+                    title: S.whatsNew.cafeTitle, detail: S.whatsNew.cafeDetail),
+        ReleaseNote(symbol: "chevron.down.circle", tint: .indigo,
+                    title: S.whatsNew.foldTitle, detail: S.whatsNew.foldDetail),
+        ReleaseNote(symbol: "wrench.and.screwdriver", tint: Theme.accentBottom,
+                    title: S.whatsNew.fixesTitle, detail: S.whatsNew.fixesDetail),
+        ]),
         Release(version: "1.0.2", items: [
         ReleaseNote(symbol: "calendar.badge.clock", tint: .orange,
                     title: S.whatsNew.planTitle, detail: S.whatsNew.planDetail),

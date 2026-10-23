@@ -106,6 +106,10 @@ enum S {
         static let moveToToday = T(cs: "Přesunout na dnešek", sk: "Presunúť na dnešok", en: "Move to today")
         static let skipToday = T(cs: "Dnes vynechat", sk: "Dnes vynechať", en: "Skip today")
         static let reorder = T(cs: "Seřadit", sk: "Zoradiť", en: "Reorder")
+        static let collapsed = T(cs: "Sbaleno", sk: "Zbalené", en: "Collapsed")
+        static let expanded = T(cs: "Rozbaleno", sk: "Rozbalené", en: "Expanded")
+        static let collapseHint = T(cs: "Sbalí nebo rozbalí seznam návyků.", sk: "Zbalí alebo rozbalí zoznam návykov.",
+                                    en: "Folds or unfolds the habit list.")
         static let reorderHint = T(cs: "Pořadí změníš podržením a přetažením.",
                                    sk: "Poradie zmeníš podržaním a potiahnutím.",
                                    en: "Hold and drag to change the order.")
@@ -794,6 +798,27 @@ enum S {
             sk: "V kalendári vidíš, ako sa k nej deň po dni blížiš. Vnútri môže byť bežná, vzácna alebo zlatá odmena.",
             en: "The calendar shows how close you're getting, day by day. Inside: a common, rare or golden reward.")
         static let versionHeader = T(cs: "Verze %@", sk: "Verzia %@", en: "Version %@")
+        static let soundTitle = T(cs: "Město má zvuk", sk: "Mesto má zvuk", en: "The town has sound")
+        static let soundDetail = T(
+            cs: "Ptáci ve dne i ti, kdo proletí, cvrčci v noci, déšť, mlha a praskající oheň, k tomu měkké tóny, které se pomalu mění. Jemné zvuky ti dají vědět i při splnění pilíře, stavění, otáčení budov nebo otevření truhly. Vypneš je v Nastavení.",
+            sk: "Vtáky vo dne aj tie, čo preletia, cvrčky v noci, dážď, hmla a praskajúci oheň, k tomu mäkké tóny, ktoré sa pomaly menia. Jemné zvuky ti dajú vedieť aj pri splnení piliera, stavaní, otáčaní budov alebo otvorení truhlice. Vypneš ich v Nastaveniach.",
+            en: "Birds by day, including the ones flying past, crickets at night, rain, fog and a crackling fire, over soft tones that slowly shift. Gentle sounds also mark finishing a pillar, building, turning a building and opening the chest. Turn them off in Settings.")
+        static let cafeTitle = T(cs: "Kavárna, topoly a lampy", sk: "Kaviareň, topole a lampy",
+                                 en: "A café, poplars and lamps")
+        static let cafeDetail = T(
+            cs: "Nová kavárna s cukrárnou a zahrádkou, štíhlé topoly do alejí a pouliční lampy, které se po setmění rozsvítí. Kachnička v rybníčku dostala nový kabát.",
+            sk: "Nová kaviareň s cukrárňou a záhradkou, štíhle topole do alejí a pouličné lampy, ktoré sa po zotmení rozsvietia. Kačička v rybníčku dostala nový šat.",
+            en: "A new café and patisserie with a garden terrace, slender poplars for avenues and street lamps that light up after dusk. The pond duck got a new look.")
+        static let foldTitle = T(cs: "Sbalitelné návyky", sk: "Zbaliteľné návyky", en: "Fold away your habits")
+        static let foldDetail = T(
+            cs: "Ťukni na nadpis „Pravidelné návyky“ a seznam se sbalí, takže uzavření dne máš hned po ruce.",
+            sk: "Ťukni na nadpis „Pravidelné návyky“ a zoznam sa zbalí, takže uzavretie dňa máš hneď poruke.",
+            en: "Tap the “Recurring habits” heading to fold the list, so closing the day is right there.")
+        static let fixesTitle = T(cs: "Opravy", sk: "Opravy", en: "Fixes")
+        static let fixesDetail = T(
+            cs: "Seřazené pilíře si po zamčení telefonu drží pořadí, uzavření dne se při podržení nepřeruší a kachnička plave hlavou napřed.",
+            sk: "Zoradené piliere si po zamknutí telefónu držia poradie, uzavretie dňa sa pri podržaní nepreruší a kačička pláva hlavou dopredu.",
+            en: "Reordered pillars keep their order after the phone locks, closing the day no longer stops half way, and the duck swims head first.")
         static let weekTitle = T(cs: "Týden od pondělí", sk: "Týždeň od pondelka", en: "Weeks start on Monday")
         static let weekDetail = T(
             cs: "Týdenní truhla i kalendář teď počítají týden od pondělí do neděle.",
@@ -832,6 +857,17 @@ enum S {
             en: "On: the map moves with your finger, like a photo. Off: the camera flies the way you drag.")
 
         static let appSection = T(cs: "Aplikace", sk: "Aplikácia", en: "App")
+        static let soundSection = T(cs: "Zvuk", sk: "Zvuk", en: "Sound")
+        static let soundAmbient = T(cs: "Zvuky prostředí", sk: "Zvuky prostredia", en: "Ambient sounds")
+        static let soundEffects = T(cs: "Zvukové efekty", sk: "Zvukové efekty", en: "Sound effects")
+        static let soundFooter = T(
+            cs: "Hrají tiše vedle tvé hudby a respektují tichý režim telefonu. Prostředí zní jen ve městě.",
+            sk: "Hrajú potichu popri tvojej hudbe a rešpektujú tichý režim telefónu. Prostredie znie len v meste.",
+            en: "They play quietly alongside your music and follow the silent switch. Ambience plays only in the town.")
+        static let soundCredit = T(
+            cs: "Zvuky vznikly pomocí Stable Audio od Stability AI.",
+            sk: "Zvuky vznikli pomocou Stable Audio od Stability AI.",
+            en: "Sounds created with Stable Audio by Stability AI.")
         static let version = T(cs: "Verze", sk: "Verzia", en: "Version")
 
         static let deleteAll = T(cs: "Smazat všechna data", sk: "Zmazať všetky dáta",

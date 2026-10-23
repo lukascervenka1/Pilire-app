@@ -43,6 +43,7 @@ extension BuildingType {
         case .blacksmith: return [.init(x: -0.21, z: 0.405)]
         case .market: return [.init(z: 0.402, width: 0.30), .init(z: -0.402, facing: -1, width: 0.30)]
         case .shop, .flowerShop: return [.init(x: -0.225, z: 0.402, width: 0.20)]
+        case .cafe: return CafeBuildingModel.roadEntrances
         case .post: return [.init(z: 0.435)]
         case .townhall, .school: return [.init(z: 0.463, width: 0.26)]
         case .church: return [.init(x: -0.24, z: 0.434, width: 0.22)]

@@ -7,6 +7,8 @@ struct SettingsView: View {
     @State private var eveningHour = 20
     @State private var notificationsEnabled = false
     @AppStorage("mapFollowsFinger")    private var mapFollowsFinger = true
+    @AppStorage(SoundManager.ambientKey) private var soundAmbient = true
+    @AppStorage(SoundManager.effectsKey) private var soundEffects = true
     @AppStorage("notifHabitsEnabled")  private var notifHabits = true
     @AppStorage("notifTasksEnabled")   private var notifTasks = true
     @AppStorage("hasSeenOnboarding")   private var hasSeenOnboarding = false
@@ -104,11 +106,31 @@ struct SettingsView: View {
                     Text(L(S.settings.mapFooter))
                 }
 
-                Section(L(S.settings.appSection)) {
+                Section {
+                    Toggle(isOn: $soundAmbient) {
+                        Label(L(S.settings.soundAmbient), systemImage: "leaf")
+                    }
+                    .tint(.orange)
+                    Toggle(isOn: $soundEffects) {
+                        Label(L(S.settings.soundEffects), systemImage: "speaker.wave.2")
+                    }
+                    .tint(.orange)
+                } header: {
+                    Text(L(S.settings.soundSection))
+                } footer: {
+                    Text(L(S.settings.soundFooter))
+                }
+                .onChange(of: soundAmbient) { _, _ in SoundManager.shared.settingsChanged() }
+
+                Section {
                     Button { showReleaseNotes = true } label: {
                         Label(L(S.whatsNew.settingsRow), systemImage: "sparkles")
                     }
                     LabeledContent(L(S.settings.version), value: ReleaseNotes.appVersion)
+                } header: {
+                    Text(L(S.settings.appSection))
+                } footer: {
+                    Text(L(S.settings.soundCredit))
                 }
 
                 Section {

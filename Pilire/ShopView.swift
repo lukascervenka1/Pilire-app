@@ -266,6 +266,7 @@ struct ShopView: View {
         guard settings.coinBalance >= kind.cost else { return }
         settings.coinBalance -= kind.cost
         Haptics.success()
+        SoundManager.shared.play(.coin)
         onPurchaseAnimal(kind)
         dismiss()
     }

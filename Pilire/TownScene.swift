@@ -374,17 +374,31 @@ final class TownScene: NSObject {
             SCNTransaction.begin()
             SCNTransaction.animationDuration = UIAccessibility.isReduceMotionEnabled ? 0 : 1.4
             for building in buildingNodes { building.nightLighting?.apply(daylight) }
+            for decoration in decorationNodes { decoration.streetLighting?.apply(daylight) }
             refreshLocalBuildingLights()
             SCNTransaction.commit()
         }
         refreshFirePits()
         updateSkyBackground()
+        onAtmosphereChanged?()
     }
 
-    /// Keep a small, fixed light budget; window emission and ground glow remain on every building.
+    /// What the town sounds like right now: weather, time of day and a lit fire.
+    var atmosphere: SoundManager.Atmosphere {
+        .init(weather: weather, daylight: daylight,
+              fireLit: isAfterDark && decorationNodes.contains { $0.type == .firePit })
+    }
+
+    /// Fired when the weather, time of day or the set of fire pits changes.
+    var onAtmosphereChanged: (() -> Void)?
+
+    /// Share six local lights between buildings and street lamps. Every lamp
+    /// retains its luminous glass and ground pool even outside this budget.
     func refreshLocalBuildingLights() {
         let focus = cameraRig.position
-        let nearest = buildingNodes.filter { $0.isComplete }.sorted {
+        let candidates: [SCNNode] = buildingNodes.filter { $0.isComplete }.map { $0 as SCNNode }
+            + decorationNodes.filter { $0.type == .streetLamp }.map { $0 as SCNNode }
+        let nearest = candidates.sorted {
             let a = $0.position, b = $1.position
             let da = (a.x-focus.x)*(a.x-focus.x) + (a.z-focus.z)*(a.z-focus.z)
             let db = (b.x-focus.x)*(b.x-focus.x) + (b.z-focus.z)*(b.z-focus.z)
@@ -393,6 +407,9 @@ final class TownScene: NSObject {
         let active = Set(nearest.map { ObjectIdentifier($0) })
         for building in buildingNodes {
             building.nightLighting?.setLocalLightEnabled(active.contains(ObjectIdentifier(building)))
+        }
+        for decoration in decorationNodes {
+            decoration.streetLighting?.setLocalLightEnabled(active.contains(ObjectIdentifier(decoration)))
         }
     }
 
@@ -523,6 +540,11 @@ final class TownScene: NSObject {
             bird.runAction(.sequence([
                 .wait(duration:8+Double(i)*19),
                 .repeatForever(.sequence([
+                    // Action blocks run on the render thread; sound lives on main.
+                    .run { node in
+                        let visible = !node.isHidden
+                        DispatchQueue.main.async { if visible { SoundManager.shared.playBirdFlyby() } }
+                    },
                     .group([flight,fade]),
                     .run { $0.position = start },
                     .wait(duration:55+Double(i)*23),
@@ -1374,7 +1396,11 @@ final class TownScene: NSObject {
         refreshGroundDetails()
         if type == .road { refreshRoadAccess() }
         if type == .birdFeeder { node.startFeederVisits() }
-        if type == .firePit { node.setFireLit(isAfterDark) }
+        if type == .firePit { node.setFireLit(isAfterDark); onAtmosphereChanged?() }
+        if type == .streetLamp {
+            node.streetLighting?.apply(daylight)
+            refreshLocalBuildingLights()
+        }
         return node
     }
 
@@ -1390,6 +1416,11 @@ final class TownScene: NSObject {
 
     func removeDecoration(_ node: DecorationNode) {
         decorationNodes.removeAll { $0 === node }
+        if node.type == .streetLamp {
+            node.streetLighting?.setLocalLightEnabled(false)
+            refreshLocalBuildingLights()
+        }
+        if node.type == .firePit { onAtmosphereChanged?() }
         refreshGroundDetails()
         node.runAction(.sequence([
             .group([.scale(to: 0.01, duration: 0.18), .fadeOut(duration: 0.18)]),
@@ -1645,6 +1676,7 @@ final class TownScene: NSObject {
             return
         }
         Haptics.tap()
+        SoundManager.shared.playRotate()
         b.toggleRotation()
         refreshGroundDetails()
         refreshRoadAccess()
@@ -1803,6 +1835,7 @@ final class TownScene: NSObject {
             tryRotate(b)
         case let d as DecorationNode where d.canRotate:
             Haptics.tap()
+            SoundManager.shared.playRotate()
             d.toggleRotation()
         default:
             break
@@ -1975,7 +2008,13 @@ final class TownScene: NSObject {
                 : gridToWorld(col: dn.gridX, row: dn.gridY)
             let settle = SCNAction.move(to: dest, duration: 0.18)
             settle.timingMode = .easeOut
-            dn.runAction(settle)
+            if dn.type == .streetLamp {
+                dn.runAction(.sequence([settle, .run { [weak self] _ in
+                    DispatchQueue.main.async { self?.refreshLocalBuildingLights() }
+                }]))
+            } else {
+                dn.runAction(settle)
+            }
             return
         }
 
@@ -2322,6 +2361,7 @@ final class DecorationNode: SCNNode, GridOccupant {
     /// Greenery can be dragged between the two lattices, so this can change.
     var isCornerAnchor: Bool
     private var rotationSteps: Int
+    private(set) var streetLighting: StreetLampLighting?
 
     /// Roads auto-tile and the pond has a multi-cell footprint — those two
     /// keep their orientation; everything else rotates on double-tap.
@@ -2336,6 +2376,7 @@ final class DecorationNode: SCNNode, GridOccupant {
         self.rotationSteps = rotation
         super.init()
         DecorationFactory.build(into: self, type: type, variant: variant)
+        if type == .streetLamp { streetLighting = StreetLampLighting(parent: self) }
         if let r = Self.shadowRadius(for: type) {
             let fp = type.footprint
             addChildNode(contactShadowNode(radius: r, cellsX: fp.w, cellsZ: fp.l))
@@ -2497,9 +2538,11 @@ final class DecorationNode: SCNNode, GridOccupant {
         switch type {
         case .tree:       0.20
         case .leafTree:   0.25
+        case .poplar:     0.14
         case .fruitTree:  0.22
         case .bush:       0.14
         case .bench:      0.17
+        case .streetLamp: 0.09
         case .fountain:   0.32
         case .doghouse:   0.28
         case .birdFeeder: 0.12
@@ -2589,6 +2632,11 @@ enum BuildingFactory {
         case .stables:    buildStables(root, f)
         case .shop:       buildShop(root, f)
         case .flowerShop: buildFlowerShop(root, f)
+        case .cafe:
+            CafeBuildingModel.build(into: root,
+                facade: facadeMat(.plaster, 0.93, 0.85, 0.73, f),
+                roof: roofMat(0.43, 0.51, 0.48, f),
+                stone: texMat(.stone, 0.70, 0.67, 0.59, f), glass: glassMat())
         case .post:       buildPost(root, f)
         case .school:     buildSchool(root, f)
         case .tower:      buildTower(root, f)
@@ -5656,10 +5704,12 @@ enum DecorationFactory {
         switch type {
         case .tree:      buildTree(root)
         case .leafTree:  buildLeafTree(root)
+        case .poplar:    TownDecorationModels.buildPoplar(into: root, variant: variant)
         case .fruitTree: buildFruitTree(root, variant)
         case .bush:      buildBush(root, variant)
         case .road:      buildRoad(root, n: false, e: false, s: false, w: false)
         case .bench:     buildBench(root)
+        case .streetLamp: TownDecorationModels.buildStreetLamp(into: root)
         case .fountain:  buildFountain(root)
         case .pond:      buildPond(root)
         case .doghouse:   buildDoghouse(root)
@@ -6176,42 +6226,7 @@ enum DecorationFactory {
             r.addChildNode(t)
         }
 
-        // Kachnička — slowly circles the pond
-        let orbit = SCNNode()
-        orbit.position = SCNVector3(0.5, 0.028, 0)
-        r.addChildNode(orbit)
-
-        let duck = SCNNode()
-        duck.position = SCNVector3(0.34, 0, 0)
-        orbit.addChildNode(duck)
-
-        let bodyG = SCNSphere(radius: 0.055)
-        bodyG.segmentCount = 12
-        bodyG.materials = [m(0.96, 0.90, 0.62)]
-        let body = SCNNode(geometry: bodyG)
-        body.scale = SCNVector3(1.35, 0.8, 0.9)
-        body.position = SCNVector3(0, 0.035, 0)
-        duck.addChildNode(body)
-
-        let headG = SCNSphere(radius: 0.032)
-        headG.segmentCount = 10
-        headG.materials = [m(0.96, 0.90, 0.62)]
-        let head = SCNNode(geometry: headG)
-        head.position = SCNVector3(0, 0.10, -0.055)
-        duck.addChildNode(head)
-
-        let beakG = SCNBox(width: 0.02, height: 0.012, length: 0.03, chamferRadius: 0.004)
-        beakG.materials = [m(0.92, 0.56, 0.20)]
-        let beak = SCNNode(geometry: beakG)
-        beak.position = SCNVector3(0, 0.095, -0.09)
-        duck.addChildNode(beak)
-
-        orbit.runAction(.repeatForever(.rotateBy(x: 0, y: -.pi * 2, z: 0, duration: 26)))
-        let bobUp = SCNAction.moveBy(x: 0, y: 0.008, z: 0, duration: 0.9)
-        bobUp.timingMode = .easeInEaseOut
-        let bobDn = SCNAction.moveBy(x: 0, y: -0.008, z: 0, duration: 0.9)
-        bobDn.timingMode = .easeInEaseOut
-        duck.runAction(.repeatForever(.sequence([bobUp, bobDn])))
+        TownDecorationModels.addSwimmingDuck(to: r)
     }
 
     private static func midPoint(_ a: CGPoint, _ b: CGPoint) -> CGPoint {
@@ -6693,7 +6708,7 @@ extension BuildingType {
         switch self {
         case .cottage, .house, .barn, .well, .farm, .stables,
              .tent, .homestead:                                        (0.78, 0.49, 0.34)
-        case .tavern, .blacksmith, .market, .shop, .flowerShop, .post: (0.36, 0.48, 0.60)
+        case .tavern, .blacksmith, .market, .shop, .flowerShop, .cafe, .post: (0.36, 0.48, 0.60)
         case .townhall, .school, .church, .fortress, .tower,
              .fireStation, .policeStation, .hospital:                  (0.37, 0.62, 0.52)
         case .cathedral, .castle, .chateau:                            (0.49, 0.42, 0.62)

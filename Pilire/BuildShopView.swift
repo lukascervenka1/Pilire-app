@@ -258,6 +258,7 @@ struct BuildShopView: View {
         guard settings.coinBalance >= kind.cost else { shortage = .animal(kind); return }
         settings.coinBalance -= kind.cost
         Haptics.success()
+        SoundManager.shared.play(.coin)
         onAdoptAnimal(kind)
         dismiss()
     }

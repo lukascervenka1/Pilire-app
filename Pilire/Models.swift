@@ -169,7 +169,7 @@ struct MaterialCost {
 enum BuildingType: String, Codable, CaseIterable {
     case tent, cottage, house, barn, well
     case farm, homestead, stables
-    case tavern, blacksmith, market, shop, flowerShop, post
+    case tavern, blacksmith, market, shop, flowerShop, cafe, post
     case townhall, school, church, fireStation, policeStation, hospital, fortress, tower
     case cathedral, chateau, castle
     case hauntedHouse, gingerbreadHouse      // seasonal
@@ -186,7 +186,7 @@ enum BuildingType: String, Codable, CaseIterable {
     /// the anchor (occupancy is rotation-aware).
     var footprint: (w: Int, l: Int) {
         switch self {
-        case .tavern, .farm, .homestead, .stables, .chateau: (2, 1)
+        case .tavern, .farm, .homestead, .stables, .cafe, .chateau: (2, 1)
         default:                                   (1, 1)
         }
     }
@@ -204,6 +204,7 @@ enum BuildingType: String, Codable, CaseIterable {
         case .stables:    L(T(cs: "Stáje", sk: "Stajne", en: "Stables"))
         case .shop:       L(T(cs: "Obchod", sk: "Obchod", en: "Shop"))
         case .flowerShop: L(T(cs: "Květinářství", sk: "Kvetinárstvo", en: "Flower shop"))
+        case .cafe:       L(T(cs: "Kavárna a cukrárna", sk: "Kaviareň a cukráreň", en: "Café & patisserie"))
         case .post:       L(T(cs: "Pošta", sk: "Pošta", en: "Post office"))
         case .school:     L(T(cs: "Škola", sk: "Škola", en: "School"))
         case .tower:      L(T(cs: "Věž", sk: "Veža", en: "Tower"))
@@ -236,6 +237,7 @@ enum BuildingType: String, Codable, CaseIterable {
         case .stables:    "🐎"
         case .shop:       "🏬"
         case .flowerShop: "💐"
+        case .cafe:       "☕️"
         case .post:       "✉️"
         case .school:     "🎓"
         case .tower:      "🗼"
@@ -269,6 +271,7 @@ enum BuildingType: String, Codable, CaseIterable {
         case .stables:    MaterialCost(wood: 18, brick: 6, steel: 1)
         case .shop:       MaterialCost(wood: 12, brick: 8)
         case .flowerShop: MaterialCost(wood: 10, brick: 6)
+        case .cafe:       MaterialCost(wood: 14, brick: 8, steel: 1)
         case .post:       MaterialCost(wood: 12, brick: 8, steel: 1)
         case .school:     MaterialCost(wood: 18, brick: 14, steel: 2)
         case .tower:      MaterialCost(wood: 12, brick: 16, steel: 3)

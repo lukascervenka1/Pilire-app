@@ -200,7 +200,7 @@ struct WeeklyChestReveal: View {
     @MainActor
     private func reveal() async {
         if reduceMotion {
-            if !isRevealed { finish() }
+            if !isRevealed { SoundManager.shared.play(.chest); finish() }
             return
         }
         do {
@@ -218,6 +218,7 @@ struct WeeklyChestReveal: View {
                 try Task.checkCancellation()
                 withAnimation(.easeInOut(duration: 0.5)) { phase = .opened }
                 Haptics.pickup()
+                SoundManager.shared.play(.chest)
             }
             if phase == .opened {
                 try await Task.sleep(for: .milliseconds(850))

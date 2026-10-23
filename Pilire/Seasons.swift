@@ -126,7 +126,7 @@ extension BuildingType {
         switch self {
         case .tent, .cottage, .house:                                   .housing
         case .barn, .well, .farm, .homestead, .stables:                 .countryside
-        case .tavern, .blacksmith, .market, .shop, .flowerShop, .post:  .crafts
+        case .tavern, .blacksmith, .market, .shop, .flowerShop, .cafe, .post: .crafts
         case .townhall, .school, .church, .fireStation, .policeStation,
              .hospital, .fortress, .tower:                              .civic
         case .cathedral, .chateau, .castle:                             .landmarks

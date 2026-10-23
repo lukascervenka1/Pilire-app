@@ -308,6 +308,7 @@ struct AchievementUnlockedOverlay: View {
             .padding(.horizontal, 40)
         }
         .onAppear {
+            SoundManager.shared.play(.badge)
             if reduceMotion {
                 shown = true
             } else {

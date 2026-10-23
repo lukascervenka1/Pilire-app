@@ -267,10 +267,13 @@ struct ContentView: View {
             checkAchievements()
         }
         .onChange(of: scenePhase) { _, phase in
+            updateAmbience()
             guard phase == .active else { return }
             activateForCurrentDay(refreshDailyView: true)
             scene.refreshTimeOfDay()
         }
+        // Ambience belongs to the town: it fades in on the map and out elsewhere.
+        .onChange(of: tab) { _, _ in updateAmbience() }
         .onChange(of: hasSeenOnboarding) { _, seen in
             guard !seen, Language.shared.hasChosen else { return }
             showOnboarding = true
@@ -659,9 +662,17 @@ struct ContentView: View {
 
     // MARK: - Scene setup
 
+    private func updateAmbience() {
+        SoundManager.shared.setListening(scenePhase == .active && tab == 0)
+    }
+
     private func configureScene() {
         guard !sceneReady else { return }
         sceneReady = true
+
+        scene.onAtmosphereChanged = { SoundManager.shared.setAtmosphere(scene.atmosphere) }
+        SoundManager.shared.setAtmosphere(scene.atmosphere)
+        updateAmbience()
 
         scene.setMapSize(TownScene.mapSize(forTier: settings.mapTier))
 
@@ -719,6 +730,7 @@ struct ContentView: View {
                 endPlacement()
                 ctx.saveChanges()
                 Haptics.success()
+                SoundManager.shared.play(.build)
                 withAnimation { Tutorial.shared.advance(from: .build) }
                 return
             }
@@ -1021,6 +1033,7 @@ struct ContentView: View {
         store.registerActiveDay()
         if let reward = store.claimLoginRewardIfNeeded() {
             withAnimation(.spring(response: 0.35)) { loginToast = reward }
+            SoundManager.shared.play(.coin)
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
                 withAnimation { loginToast = nil }
             }
