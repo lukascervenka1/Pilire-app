@@ -47,7 +47,8 @@ final class SoundManager {
         /// the effects.
         var level: Float {
             switch self {
-            case .birds, .crickets: 0.55
+            case .birds:            0.35   // birdsong sits well back
+            case .crickets:         0.55
             case .rain:             0.60
             case .fog:              0.45
             case .fire:             0.50
@@ -77,8 +78,15 @@ final class SoundManager {
     private var currentTargets: [Bed: Float] = [:]
     private var wanderTask: Task<Void, Never>?
     private var chirpTask: Task<Void, Never>?
-    private var padTask: Task<Void, Never>?
-    private var padPlayer: AVAudioPlayer?
+    /// Soft tones under everything calm, and long birdsong recordings: each
+    /// a playlist that crossfades between tracks instead of one short loop.
+    private lazy var pads = Rotation(prefix: "pad_", jitter: 0.38...0.62,
+                                     pick: { [unowned self] in self.pickVariant($0, avoiding: $1) },
+                                     activate: { [unowned self] in self.activateSession() })
+    private lazy var birdsong = Rotation(prefix: "birdbed_", jitter: 0.7...1.0,
+                                         pick: { [unowned self] in self.pickVariant($0, avoiding: $1) },
+                                         activate: { [unowned self] in self.activateSession() })
+    private var hasBirdsong: Bool { pickVariant("birdbed_", avoiding: nil) != nil }
     /// Short one-offs (chirps, fly-bys, turns) kept alive until they finish.
     private var liveShots: [AVAudioPlayer] = []
     private var lastVariant: [String: URL] = [:]
@@ -132,6 +140,10 @@ final class SoundManager {
         setLiveLayers(targets: targets)
         for bed in Bed.allCases {
             let target = (targets[bed] ?? 0) * bed.level * (wander[bed] ?? 1)
+            if bed == .birds, hasBirdsong {
+                birdsong.set(level: target, fade: fade)
+                continue
+            }
             if target > 0 {
                 stopTasks[bed]?.cancel()
                 stopTasks[bed] = nil
@@ -196,46 +208,17 @@ final class SoundManager {
         guard chirpTask == nil else { return }
         chirpTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(Double.random(in: 9...26)))
+                try? await Task.sleep(for: .seconds(Double.random(in: 14...36)))
                 guard !Task.isCancelled, let self else { return }
-                self.playRandom("chirp_", volume: Float.random(in: 0.28...0.5) * self.chirpStrength,
+                self.playRandom("chirp_", volume: Float.random(in: 0.12...0.22) * self.chirpStrength,
                                 pan: Float.random(in: -0.85...0.85), rate: Float.random(in: 0.92...1.1))
             }
         }
     }
     private var chirpStrength: Float = 1
 
-    /// Soft tones under the birds. Tracks follow each other with long
-    /// crossfades, never the same one twice in a row, each at a slightly
-    /// different level.
     private func setPad(on: Bool) {
-        if !on {
-            padTask?.cancel(); padTask = nil
-            if let old = padPlayer { old.setVolume(0, fadeDuration: 2); stop(old, after: 2.2) }
-            padPlayer = nil
-            return
-        }
-        guard padTask == nil else { return }
-        padTask = Task { [weak self] in
-            var last: URL?
-            while !Task.isCancelled {
-                guard let self, self.activateSession(),
-                      let url = self.pickVariant("pad_", avoiding: last),
-                      let next = try? AVAudioPlayer(contentsOf: url) else { return }
-                last = url
-                let fade = min(7.0, max(2.0, next.duration / 4))
-                // Enter anywhere in the first half, so even a single track
-                // never lines up the same way twice.
-                next.currentTime = Double.random(in: 0...(next.duration * 0.5))
-                next.volume = 0
-                next.prepareToPlay()
-                next.play()
-                next.setVolume(Float.random(in: 0.38...0.62), fadeDuration: fade)
-                if let old = self.padPlayer { old.setVolume(0, fadeDuration: fade); self.stop(old, after: fade + 0.2) }
-                self.padPlayer = next
-                try? await Task.sleep(for: .seconds(max(next.duration - next.currentTime - fade, 4)))
-            }
-        }
+        pads.set(level: on ? 1 : 0, fade: on ? 4 : 2)
     }
 
     private func stop(_ player: AVAudioPlayer, after delay: TimeInterval) {
@@ -252,7 +235,7 @@ final class SoundManager {
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(4.5))
             guard let self, self.listening, self.ambientEnabled,
-                  let player = self.playRandom("flyby_", volume: 0.5, pan: -0.7, rate: 1) else { return }
+                  let player = self.playRandom("flyby_", volume: 0.3, pan: -0.7, rate: 1) else { return }
             let steps = 24
             for i in 1...steps {
                 try? await Task.sleep(for: .seconds(player.duration / Double(steps)))
@@ -341,6 +324,7 @@ final class SoundManager {
             try? await Task.sleep(for: .seconds(delay))
             let anyPlaying = beds.values.contains { $0.isPlaying }
                 || effectPlayers.values.joined().contains { $0.isPlaying }
+                || pads.isPlaying || birdsong.isPlaying
             if !anyPlaying {
                 try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             }
@@ -350,5 +334,73 @@ final class SoundManager {
     private static func url(_ name: String, _ ext: String) -> URL? {
         Bundle.main.url(forResource: name, withExtension: ext, subdirectory: "Sounds")
             ?? Bundle.main.url(forResource: name, withExtension: ext)
+    }
+}
+
+// MARK: - Playlist that crossfades
+
+/// Plays bundled tracks named `prefix…` one after another, picking at random
+/// (never the same twice in a row), entering each at a random point and
+/// crossfading over several seconds, so a long stay never hears a loop.
+@MainActor
+private final class Rotation {
+    private let prefix: String
+    private let jitter: ClosedRange<Float>
+    private let pick: (String, URL?) -> URL?
+    private let activate: () -> Bool
+
+    private var player: AVAudioPlayer?
+    private var trackGain: Float = 1
+    private var level: Float = 0
+    private var last: URL?
+    private var task: Task<Void, Never>?
+
+    var isPlaying: Bool { player?.isPlaying ?? false }
+
+    init(prefix: String, jitter: ClosedRange<Float>,
+         pick: @escaping (String, URL?) -> URL?, activate: @escaping () -> Bool) {
+        self.prefix = prefix; self.jitter = jitter; self.pick = pick; self.activate = activate
+    }
+
+    func set(level: Float, fade: TimeInterval) {
+        self.level = level
+        guard level > 0 else {
+            task?.cancel(); task = nil
+            if let old = player { old.setVolume(0, fadeDuration: fade); retire(old, after: fade + 0.2) }
+            player = nil
+            return
+        }
+        player?.setVolume(level * trackGain, fadeDuration: fade)
+        guard task == nil else { return }
+        task = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let wait = self?.advance() else { return }
+                try? await Task.sleep(for: .seconds(wait))
+            }
+        }
+    }
+
+    /// Starts the next track over the current one; returns how long to wait.
+    private func advance() -> TimeInterval? {
+        guard level > 0, activate(), let url = pick(prefix, last),
+              let next = try? AVAudioPlayer(contentsOf: url) else { return nil }
+        last = url
+        let fade = min(7.0, max(2.0, next.duration / 4))
+        next.currentTime = Double.random(in: 0...(next.duration * 0.5))
+        trackGain = Float.random(in: jitter)
+        next.volume = 0
+        next.prepareToPlay()
+        next.play()
+        next.setVolume(level * trackGain, fadeDuration: fade)
+        if let old = player { old.setVolume(0, fadeDuration: fade); retire(old, after: fade + 0.2) }
+        player = next
+        return max(next.duration - next.currentTime - fade, 4)
+    }
+
+    private func retire(_ old: AVAudioPlayer, after delay: TimeInterval) {
+        Task { [weak old] in
+            try? await Task.sleep(for: .seconds(delay))
+            old?.stop()
+        }
     }
 }
