@@ -408,27 +408,34 @@ final class SoundManager {
 
     // MARK: Session
 
+    /// Session work off the main thread: activating can block for a while
+    /// (Xcode flags it as a hang risk), and it used to run on every sound.
+    private let sessionQueue = DispatchQueue(label: "Pilire.audioSession", qos: .userInitiated)
+
     private func activateSession() -> Bool {
-        let session = AVAudioSession.sharedInstance()
-        if !sessionReady {
-            do {
-                try session.setCategory(.ambient, mode: .default)
-                sessionReady = true
-            } catch { return false }
-        }
-        do { try session.setActive(true) } catch { return false }
+        guard !sessionReady else { return true }
+        // The category is set once, before the first sound, so even the very
+        // first one mixes with the player's own music instead of stopping it.
+        do { try AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default) } catch { return false }
+        sessionReady = true
+        // Activation happens once, in the background. Playback activates the
+        // session on its own as well, and again after an interruption.
+        sessionQueue.async { try? AVAudioSession.sharedInstance().setActive(true) }
         return true
     }
 
-    /// With nothing playing, give the session back so other apps' audio can
-    /// return to full volume.
+    /// With nothing playing, give the session back. An `.ambient` session
+    /// never ducks other audio, so this is only tidiness; it runs off the
+    /// main thread for the same reason as activation.
     private func releaseSessionWhenSilent(after delay: TimeInterval) {
         Task {
             try? await Task.sleep(for: .seconds(delay))
             let anyPlaying = beds.values.contains { $0.isPlaying }
                 || effectPlayers.values.joined().contains { $0.isPlaying }
                 || pads.isPlaying || birdsong.isPlaying || stormRain.isPlaying || gentleRain.isPlaying || thunderPlayer?.isPlaying == true
-            if !anyPlaying {
+            guard !anyPlaying else { return }
+            sessionReady = false
+            sessionQueue.async {
                 try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             }
         }

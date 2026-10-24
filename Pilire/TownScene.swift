@@ -462,6 +462,9 @@ final class TownScene: NSObject {
                 .forEach { $0.removeFromParentNode() }
             ambientMotionAllowed = motionAllowed
             setupBirds(); setupButterflies(); setupFireflies()
+            for feeder in decorationNodes where feeder.type == .birdFeeder {
+                feeder.setFeederVisitsEnabled(canVisitFeeders)
+            }
         }
     }
 
@@ -1457,13 +1460,17 @@ final class TownScene: NSObject {
         decorationNodes.append(node)
         refreshGroundDetails()
         if type == .road { refreshRoadAccess() }
-        if type == .birdFeeder { node.startFeederVisits() }
+        if type == .birdFeeder { node.setFeederVisitsEnabled(canVisitFeeders) }
         if type == .firePit { node.setFireLit(isAfterDark); onAtmosphereChanged?() }
         if type == .streetLamp {
             node.streetLighting?.apply(buildingLightPhase)
             refreshLocalBuildingLights()
         }
         return node
+    }
+
+    private var canVisitFeeders: Bool {
+        !weather.hasPrecipitation && daylight != .night && !UIAccessibility.isReduceMotionEnabled
     }
 
     /// Dusk and night — when fires burn and pets turn in.
@@ -2568,36 +2575,23 @@ final class DecorationNode: SCNNode, GridOccupant {
         return (SCNVector3(depth * sin(yaw), 0.031, depth * cos(yaw)), yaw)
     }
 
-    /// Krmítko: a small bird drops in every now and then, hops, and leaves.
+    /// One visitor per feeder; the whole visit follows the decoration when moved.
     func startFeederVisits() {
-        guard type == .birdFeeder, !UIAccessibility.isReduceMotionEnabled else { return }
-        let bird = AmbientBirdNode(kind:.sparrow,flying:false)
-        bird.name = "feederBird"
-        bird.scale = SCNVector3(0.55,0.55,0.55)
-        bird.startPecking()
-        bird.position = SCNVector3(0.06, 0.47, 0.02)
-        bird.opacity = 0
+        guard type == .birdFeeder, !UIAccessibility.isReduceMotionEnabled,
+              childNode(withName: "feederBird", recursively: false) == nil else { return }
+        let bird = FeederBirdNode()
         addChildNode(bird)
+        bird.startVisits()
+    }
 
-        // Land, hop about pecking, then leave — repeating with quiet gaps.
-        let hop = SCNAction.sequence([
-            .moveBy(x: -0.07, y: 0.05, z: 0.02, duration: 0.18),
-            .moveBy(x: 0, y: -0.05, z: 0, duration: 0.12),
-            .wait(duration: 0.5),
-            .moveBy(x: 0.09, y: 0.05, z: -0.03, duration: 0.18),
-            .moveBy(x: -0.02, y: -0.05, z: 0.01, duration: 0.12),
-            .wait(duration: 0.7),
-        ])
-        let visit = SCNAction.sequence([
-            .fadeIn(duration: 0.35),
-            .repeat(hop, count: 2),
-            .fadeOut(duration: 0.4),
-            .wait(duration: Double.random(in: 12...26)),
-        ])
-        bird.runAction(.sequence([
-            .wait(duration: Double.random(in: 2...10)),
-            .repeatForever(visit),
-        ]))
+    func setFeederVisitsEnabled(_ enabled: Bool) {
+        guard type == .birdFeeder else { return }
+        if enabled { startFeederVisits() }
+        else if let bird = childNode(withName: "feederBird", recursively: false) {
+            bird.removeAllActions()
+            FeederBirdNode.apply(at: 0, to: bird)
+            bird.removeFromParentNode()
+        }
     }
 
     private static func shadowRadius(for type: DecorationItem) -> CGFloat? {
@@ -5779,7 +5773,7 @@ enum DecorationFactory {
         case .fountain:  buildFountain(root)
         case .pond:      buildPond(root)
         case .doghouse:   buildDoghouse(root)
-        case .birdFeeder: buildBirdFeeder(root)
+        case .birdFeeder: BirdFeederModel.build(into: root)
         case .firePit:    buildFirePit(root)
         case .pumpkins:      buildPumpkins(root)
         case .scarecrow:     buildScarecrow(root)
@@ -5866,52 +5860,6 @@ enum DecorationFactory {
             let g = SCNSphere(radius:0.013); g.segmentCount = 6; g.materials = [kibble]
             let n = SCNNode(geometry:g); n.position = SCNVector3(cos(a)*radius,Float(i%3)*0.003,sin(a)*radius); n.scale.y = 0.6; food.addChildNode(n)
         }
-    }
-
-    /// Krmítko — a little roofed tray on a post; birds come and go.
-    private static func buildBirdFeeder(_ r: SCNNode) {
-        let wood = m(0.60, 0.44, 0.28)
-        let roof = m(0.45, 0.55, 0.38)
-
-        let post = SCNCylinder(radius: 0.022, height: 0.42)
-        post.materials = [wood]
-        let p = SCNNode(geometry: post)
-        p.position = SCNVector3(0, 0.21, 0)
-        r.addChildNode(p)
-
-        let tray = SCNBox(width: 0.26, height: 0.022, length: 0.22, chamferRadius: 0.008)
-        tray.materials = [m(0.68, 0.52, 0.34)]
-        let t = SCNNode(geometry: tray)
-        t.position = SCNVector3(0, 0.43, 0)
-        t.name = "perch"
-        r.addChildNode(t)
-
-        // Seed scattered on the tray
-        for (sx, sz) in [(-0.05, 0.03), (0.04, -0.02), (0.01, 0.05)] as [(CGFloat, CGFloat)] {
-            let g = SCNSphere(radius: 0.012)
-            g.segmentCount = 6
-            g.materials = [m(0.78, 0.66, 0.36)]
-            let n = SCNNode(geometry: g)
-            n.position = SCNVector3(sx, 0.45, sz)
-            r.addChildNode(n)
-        }
-
-        // Two small posts holding a pitched roof over the tray
-        for sx in [-0.10, 0.10] as [CGFloat] {
-            let g = SCNBox(width: 0.016, height: 0.12, length: 0.016, chamferRadius: 0.004)
-            g.materials = [wood]
-            let n = SCNNode(geometry: g)
-            n.position = SCNVector3(sx, 0.50, 0)
-            r.addChildNode(n)
-        }
-        let rf = SCNBox(width: 0.30, height: 0.13, length: 0.13, chamferRadius: 0.012)
-        rf.materials = [roof]
-        let roofNode = SCNNode(geometry: rf)
-        roofNode.eulerAngles.x = .pi / 4
-        let holder = SCNNode()
-        holder.addChildNode(roofNode)
-        holder.position = SCNVector3(0, 0.60, 0)
-        r.addChildNode(holder)
     }
 
     /// A little harvest group: two carved lanterns and a smaller uncut pumpkin.
