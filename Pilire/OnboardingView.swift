@@ -281,13 +281,8 @@ private struct CoinsIllustration: View {
     var body: some View {
         ZStack {
             ForEach(0..<3, id: \.self) { i in
-                Image(systemName: "seal.fill")
+                AppIcon(ResourceIcon.coin)
                     .font(.system(size: 64))
-                    .foregroundStyle(
-                        LinearGradient(colors: [Color(red: 1.0, green: 0.84, blue: 0.25),
-                                                Color(red: 0.93, green: 0.65, blue: 0.13)],
-                                       startPoint: .top, endPoint: .bottom)
-                    )
                     .shadow(color: .black.opacity(0.12), radius: 6, y: 4)
                     .offset(x: CGFloat(i - 1) * 44, y: CGFloat(abs(i - 1)) * 26)
                     .zIndex(i == 1 ? 1 : 0)

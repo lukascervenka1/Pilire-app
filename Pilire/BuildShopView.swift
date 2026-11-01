@@ -397,7 +397,7 @@ private struct DecorationCard: View {
                                image: DecorationPreview.image(for: item), event: item.event,
                                affordable: affordable, action: L(S.build.place),
                                unavailable: L(S.build.needCoins)) {
-                CatalogPrice(symbol: "seal.fill", color: CatalogStyle.coin, amount: item.cost,
+                CatalogPrice(symbol: ResourceIcon.coin, color: CatalogStyle.coin, amount: item.cost,
                              enough: affordable, label: L(S.common.coins))
             }
         }
@@ -423,7 +423,7 @@ private struct AnimalCard: View {
                                image: image, placeholder: kind.symbolName, subtitleLines: 2, event: nil,
                                affordable: affordable, action: L(S.build.adopt),
                                unavailable: L(S.build.needCoins)) {
-                CatalogPrice(symbol: "seal.fill", color: CatalogStyle.coin, amount: kind.cost,
+                CatalogPrice(symbol: ResourceIcon.coin, color: CatalogStyle.coin, amount: kind.cost,
                              enough: affordable, label: L(S.common.coins))
             }
         }
@@ -439,7 +439,7 @@ struct CoinChip: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: "seal.fill").font(.caption).foregroundStyle(.yellow)
+            AppIcon(ResourceIcon.coin).font(.caption)
             Text("\(count)")
                 .font(.caption.bold()).monospacedDigit()
                 .foregroundStyle(.primary)
@@ -505,7 +505,7 @@ struct MaterialChip: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: material.symbolName)
+            AppIcon(material.symbolName)
                 .font(.caption)
                 .foregroundStyle(Color(red: material.tint.r, green: material.tint.g, blue: material.tint.b))
             Text("\(count)")
@@ -591,7 +591,7 @@ struct PayoutView: View {
 
     private func payoutRow(_ m: Material, _ n: Int) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: m.symbolName)
+            AppIcon(m.symbolName)
                 .foregroundStyle(Color(red: m.tint.r, green: m.tint.g, blue: m.tint.b))
             Text("+" + m.amount(n))
                 .font(.title3.weight(.semibold)).monospacedDigit()

@@ -503,7 +503,7 @@ struct DailyView: View {
     private var streakItem: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             if settings.momentum > 0 {
-                Label("\(Int(settings.momentum))", systemImage: "leaf.fill")
+                Label { Text("\(Int(settings.momentum))") } icon: { AppIcon(ResourceIcon.leaf) }
                     .font(.subheadline).foregroundStyle(.green)
             }
         }
@@ -535,7 +535,7 @@ struct DailyView: View {
             HStack(spacing: 5) {
                 Text(earned >= 0 ? "+\(earned)" : "\(earned)")
                     .font(.subheadline.bold()).monospacedDigit()
-                Image(systemName: Material.wood.symbolName)
+                AppIcon(Material.wood.symbolName)
                     .font(.subheadline)
                     .foregroundStyle(earned >= 0
                         ? Color(red: 0.45, green: 0.80, blue: 0.45)

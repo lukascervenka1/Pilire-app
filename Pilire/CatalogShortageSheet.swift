@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 enum CatalogShortageTarget: Identifiable {
     case building(BuildingType)
@@ -50,7 +51,7 @@ enum CatalogShortageTarget: Identifiable {
 
     @MainActor private static func coins(_ cost: Int, in settings: UserSettings) -> [CatalogMissingResource] {
         guard settings.coinBalance < cost else { return [] }
-        return [CatalogMissingResource(id: "coins", name: L(S.common.coins), symbol: "seal.fill",
+        return [CatalogMissingResource(id: "coins", name: L(S.common.coins), symbol: ResourceIcon.coin,
             color: CatalogStyle.coin, available: settings.coinBalance, required: cost)]
     }
 }
@@ -69,6 +70,7 @@ struct CatalogShortageSheet: View {
     let target: CatalogShortageTarget
     let settings: UserSettings
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var ctx
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
@@ -99,6 +101,25 @@ struct CatalogShortageSheet: View {
             .padding(24).frame(maxWidth: 560, alignment: .leading).frame(maxWidth: .infinity)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
+          VStack(spacing: 8) {
+            if case .building(let type) = target, let price = Market.topUpPrice(for: type.cost, settings),
+               settings.coinBalance >= price {
+                Button {
+                    if Market.topUp(for: type.cost, settings) {
+                        ctx.saveChanges()
+                        SoundManager.shared.play(.coin)
+                        Haptics.success()
+                        dismiss()
+                    }
+                } label: {
+                    Label(L(S.market.topUp, Market.coins(price)), systemImage: "storefront.fill")
+                        .font(.system(.headline, design: .rounded))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity).frame(minHeight: 50)
+                        .background(Theme.accentGradient, in: RoundedRectangle(cornerRadius: 16))
+                }
+                .buttonStyle(CatalogPressStyle())
+            }
             Button { dismiss() } label: {
                 Text(L(S.info.understood)).font(.system(.headline, design: .rounded))
                     .foregroundStyle(CatalogStyle.ink)
@@ -106,6 +127,7 @@ struct CatalogShortageSheet: View {
                     .background(Theme.creamBottom, in: RoundedRectangle(cornerRadius: 16))
             }
             .buttonStyle(CatalogPressStyle())
+          }
             .padding(.horizontal, 24).padding(.vertical, 12)
             .frame(maxWidth: 560).frame(maxWidth: .infinity).background(Theme.creamTop)
         }
@@ -119,7 +141,7 @@ struct CatalogShortageSheet: View {
 
     private func resourceRow(_ resource: CatalogMissingResource) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: resource.symbol).font(.system(size: 20)).foregroundStyle(resource.color)
+            AppIcon(resource.symbol).font(.system(size: 22)).foregroundStyle(resource.color)
                 .frame(width: 32, height: 32).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 5) {
                 ViewThatFits(in: .horizontal) {

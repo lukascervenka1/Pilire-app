@@ -24,7 +24,7 @@ struct CatalogWallet: View {
     var body: some View {
         let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: dynamicTypeSize >= .xxLarge ? 2 : 4)
         LazyVGrid(columns: columns, spacing: 8) {
-            balance("seal.fill", color: CatalogStyle.coin, count: settings.coinBalance, label: L(S.common.coins))
+            balance(ResourceIcon.coin, color: CatalogStyle.coin, count: settings.coinBalance, label: L(S.common.coins))
             ForEach(Material.allCases) { material in
                 balance(material.symbolName,
                         color: Color(red: material.tint.r, green: material.tint.g, blue: material.tint.b),
@@ -40,7 +40,7 @@ struct CatalogWallet: View {
 
     private func balance(_ symbol: String, color: Color, count: Int, label: String) -> some View {
         HStack(spacing: 5) {
-            Image(systemName: symbol).foregroundStyle(color).accessibilityHidden(true)
+            AppIcon(symbol).foregroundStyle(color).accessibilityHidden(true)
             Text(count.formatted(.number.locale(Language.shared.current.locale)))
                 .monospacedDigit().foregroundStyle(CatalogStyle.ink)
                 .lineLimit(1).minimumScaleFactor(0.75)
@@ -124,7 +124,7 @@ struct CatalogPrice: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: symbol).foregroundStyle(color).accessibilityHidden(true)
+            AppIcon(symbol).foregroundStyle(color).accessibilityHidden(true)
             Text("\(amount)").monospacedDigit().fontWeight(enough ? .semibold : .bold)
                 .foregroundStyle(enough ? CatalogStyle.ink : CatalogStyle.shortageAmount)
                 .padding(.horizontal, 4).padding(.vertical, 2)

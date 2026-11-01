@@ -269,6 +269,41 @@ historii dnů. V Release buildu nic z toho neexistuje.
 Nejnovější verze je nahoře. Stejné novinky ukazuje i okno ve hře
 (`Pilire/ReleaseNotes.swift`) a Nastavení → Novinky. Limit pole je 4000 znaků.
 
+### 1.1.1
+
+🇨🇿
+```
+Do města přijel kupec a budovy si teď prohlédneš zblízka:
+
+• Tržiště: ťukni na stánek v horní liště. Potulný kupec Matěj má každý den nové prosby, třeba „Nutně potřebuju 1 kus oceli, zaplatím ti 60 mincí!“. Každou přijmeš jednou za den.
+• Na pultu nakoupíš, prodáš nebo vyměníš dřevo, cihly a ocel. Každý den je jedna surovina ve slevě nebo se dráž vykupuje a se stavbou Tržiště dostaneš za suroviny víc.
+• Když na stavbu něco chybí, dokoupíš to jedním ťuknutím.
+• Budovy zblízka: po ťuknutí na budovu ji uvidíš na vlastním kousku trávy, prstem ji otočíš a dozvíš se, kdy vznikla a kolik stála.
+• Mince, dřevo, cihly, ocel a lístky mají nové ikony ve stylu městečka.
+```
+
+🇸🇰
+```
+Do mesta prišiel kupec a budovy si teraz prezrieš zblízka:
+
+• Trhovisko: ťukni na stánok v hornej lište. Potulný kupec Matej má každý deň nové prosby, napríklad „Nutne potrebujem 1 kus ocele, zaplatím ti 60 mincí!“. Každú prijmeš raz za deň.
+• Na pulte nakúpiš, predáš alebo vymeníš drevo, tehly a oceľ. Každý deň je jedna surovina v zľave alebo sa drahšie vykupuje a so stavbou Trhovisko dostaneš za suroviny viac.
+• Keď na stavbu niečo chýba, dokúpiš to jedným ťuknutím.
+• Budovy zblízka: po ťuknutí na budovu ju uvidíš na vlastnom kúsku trávy, prstom ju otočíš a dozvieš sa, kedy vznikla a koľko stála.
+• Mince, drevo, tehly, oceľ a lístky majú nové ikony v štýle mestečka.
+```
+
+🇬🇧 (U.K. i U.S.)
+```
+A merchant has come to town, and you can see your buildings up close:
+
+• The market: tap the stall in the top bar. Matěj, a travelling merchant, brings new requests every day, like “I urgently need 1 steel, I'll pay you 60 coins!”. Each one can be taken once a day.
+• At the counter you can buy, sell or swap wood, bricks and steel. Every day one material is cheaper or sells for more, and a market hall in town pays more for what you sell.
+• If a building is short of something, buy the rest in one tap.
+• Buildings up close: tap one to see it on its own patch of grass, turn it with your finger and find out when it was built and what it cost.
+• Coins, wood, bricks, steel and leaves have new icons in the town's style.
+```
+
 ### 1.1.0
 
 🇨🇿

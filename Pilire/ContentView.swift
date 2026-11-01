@@ -22,6 +22,9 @@ struct ContentView: View {
     @State private var tappedBuilding: TappedBuilding?
     @State private var showInventory = false
     @State private var showBuild   = false
+    @State private var showMarket  = false
+    /// The trader's dot stays until the market has been opened today.
+    @State private var marketDot = Market.hasUnseenOffers
     @State private var placingItem: DecorationItem?
     @State private var placingBuilding: BuildingType?
     /// Set when the piece being placed comes out of the inventory: it lands for
@@ -203,6 +206,9 @@ struct ContentView: View {
                 )
             }
         }
+        .sheet(isPresented: $showMarket, onDismiss: { marketDot = Market.hasUnseenOffers }) {
+            MarketView(settings: settings, hasMarketHall: hasMarketHall)
+        }
         .sheet(isPresented: $showBuild) {
             BuildShopView(
                 settings: settings,
@@ -274,6 +280,9 @@ struct ContentView: View {
             activateForCurrentDay(refreshDailyView: true)
             scene.refreshTimeOfDay()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+            marketDot = Market.hasUnseenOffers
+        }
         .onChange(of: reduceMotion) { _, _ in scene.refreshWeatherAccessibility() }
         .onChange(of: dimFlashingLights) { _, _ in scene.refreshWeatherAccessibility() }
         // Ambience belongs to the town: it fades in on the map and out elsewhere.
@@ -306,7 +315,7 @@ struct ContentView: View {
                 // One calm surface keeps every resource readable over clouds,
                 // weather and buildings without a row of competing capsules.
                 HStack(spacing: 0) {
-                    hudValue(icon: "seal.fill", tint: .yellow,
+                    hudValue(icon: ResourceIcon.coin, tint: .yellow,
                              count: settings.coinBalance,
                              title: L(S.common.coins), info: L(S.town.coinsInfo))
                     hudDivider
@@ -317,10 +326,11 @@ struct ContentView: View {
                                  title: m.displayName, info: m.infoText)
                         hudDivider
                     }
-                    hudValue(icon: "leaf.fill", tint: .green,
+                    hudValue(icon: ResourceIcon.leaf, tint: .green,
                              count: Int(settings.momentum),
                              title: L(S.town.momentum), info: L(S.town.momentumInfo))
                     hudDivider
+                    marketButton
                     inventoryButton
                 }
                 .padding(.horizontal, 7).padding(.vertical, 6)
@@ -481,9 +491,16 @@ struct ContentView: View {
     private func hudValue(icon: String, tint: Color, count: Int,
                           title: String, info: String) -> some View {
         HStack(spacing: 4) {
-            Image(systemName: icon)
+            // Resource artwork is not a symbol, so the old bounce is a short
+            // keyframed pop instead, skipped when motion is reduced.
+            AppIcon(icon)
                 .foregroundStyle(tint)
-                .symbolEffect(.bounce, value: count)
+                .keyframeAnimator(initialValue: 1.0, trigger: count) { icon, scale in
+                    icon.scaleEffect(reduceMotion ? 1 : scale)
+                } keyframes: { _ in
+                    SpringKeyframe(1.22, duration: 0.14)
+                    SpringKeyframe(1.0, duration: 0.26)
+                }
             Text("\(count)")
                 .fontWeight(.bold)
                 .monospacedDigit()
@@ -505,6 +522,29 @@ struct ContentView: View {
             .frame(width: 1, height: 18)
     }
 
+    private var hasMarketHall: Bool {
+        buildings.contains { $0.type == .market && !$0.isStored }
+    }
+
+    private var marketButton: some View {
+        Button { showMarket = true } label: {
+            Image(systemName: "storefront.fill")
+                .font(.caption)
+                .foregroundStyle(Theme.creamLabel)
+                .frame(width: 34, height: 30)
+                .overlay(alignment: .topTrailing) {
+                    if marketDot {
+                        Circle().fill(Theme.accentBottom).frame(width: 7, height: 7)
+                            .offset(x: -4, y: 4)
+                    }
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(L(S.market.title))
+        .accessibilityValue(marketDot ? L(S.market.mapBadge) : "")
+    }
+
     private var inventoryButton: some View {
         Button { showInventory = true } label: {
             Image(systemName: "backpack.fill")
@@ -519,7 +559,7 @@ struct ContentView: View {
 
     private func loginRewardToast(_ n: Int) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: "seal.fill").foregroundStyle(.yellow)
+            AppIcon(ResourceIcon.coin)
             Text(L(S.town.visitReward, n))
                 .font(.subheadline.weight(.semibold))
         }
@@ -1036,6 +1076,7 @@ struct ContentView: View {
     /// keep the same view hierarchy alive across midnight, so `onAppear` alone
     /// is not a reliable boundary for a daily app.
     private func activateForCurrentDay(refreshDailyView: Bool = false) {
+        marketDot = Market.hasUnseenOffers
         let store = ensureSettings()
         store.registerActiveDay()
         if let reward = store.claimLoginRewardIfNeeded() {

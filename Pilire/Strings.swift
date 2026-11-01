@@ -797,6 +797,22 @@ enum S {
             cs: "V kalendáři vidíš, jak se k ní den po dni blížíš. Uvnitř může být běžná, vzácná, nebo zlatá odměna.",
             sk: "V kalendári vidíš, ako sa k nej deň po dni blížiš. Vnútri môže byť bežná, vzácna alebo zlatá odmena.",
             en: "The calendar shows how close you're getting, day by day. Inside: a common, rare or golden reward.")
+        static let marketTitle = T(cs: "Tržiště a kupec Matěj", sk: "Trhovisko a kupec Matej",
+                                   en: "The market and Matěj the merchant")
+        static let marketDetail = T(
+            cs: "Ťukni na stánek v horní liště. Matěj má každý den nové prosby a na pultu nakoupíš, prodáš nebo vyměníš suroviny. Když na stavbu něco chybí, dokoupíš to jedním ťuknutím.",
+            sk: "Ťukni na stánok v hornej lište. Matej má každý deň nové prosby a na pulte nakúpiš, predáš alebo vymeníš suroviny. Keď na stavbu niečo chýba, dokúpiš to jedným ťuknutím.",
+            en: "Tap the stall in the top bar. Matěj brings new requests every day, and at the counter you can buy, sell or swap materials. If a building is short of something, buy the rest in one tap.")
+        static let buildingTitle = T(cs: "Budovy zblízka", sk: "Budovy zblízka", en: "Buildings up close")
+        static let buildingDetail = T(
+            cs: "Ťukni na budovu ve městě: stojí na vlastním kousku trávy, prstem ji otočíš a uvidíš, kdy vznikla a kolik stála.",
+            sk: "Ťukni na budovu v meste: stojí na vlastnom kúsku trávy, prstom ju otočíš a uvidíš, kedy vznikla a koľko stála.",
+            en: "Tap a building in town: it stands on its own patch of grass, turns with your finger and shows when it was built and what it cost.")
+        static let iconsTitle = T(cs: "Nové ikony surovin", sk: "Nové ikony surovín", en: "New material icons")
+        static let iconsDetail = T(
+            cs: "Mince, dřevo, cihly, ocel a lístky mají vlastní ikony ve stylu městečka.",
+            sk: "Mince, drevo, tehly, oceľ a lístky majú vlastné ikony v štýle mestečka.",
+            en: "Coins, wood, bricks, steel and leaves have their own icons in the town's style.")
         static let versionHeader = T(cs: "Verze %@", sk: "Verzia %@", en: "Version %@")
         static let soundTitle = T(cs: "Město má zvuk", sk: "Mesto má zvuk", en: "The town has sound")
         static let soundDetail = T(
@@ -829,6 +845,155 @@ enum S {
             cs: "Týdenní truhla i kalendář teď počítají týden od pondělí do neděle.",
             sk: "Týždenná truhlica aj kalendár teraz počítajú týždeň od pondelka do nedele.",
             en: "The weekly chest and the calendar now count weeks from Monday to Sunday.")
+    }
+
+    enum market {
+        static let title = T(cs: "Tržiště", sk: "Trhovisko", en: "Market")
+        static let youGive = T(cs: "Dáš", sk: "Dáš", en: "You give")
+        static let youGet = T(cs: "Dostaneš", sk: "Dostaneš", en: "You get")
+        static let accept = T(cs: "Platí!", sk: "Platí!", en: "Deal!")
+        static let dealHeader = T(cs: "Nabídka dne", sk: "Ponuka dňa", en: "Today's deal")
+        static let dealCheaper = T(cs: "Dnes levnější %@: %d místo %d mincí za kus.",
+                                   sk: "Dnes lacnejšia %@: %d namiesto %d mincí za kus.",
+                                   en: "%@ is cheaper today: %d instead of %d coins each.")
+        static let dealBetterSell = T(cs: "Dnes vykupuju %@ dráž: %d mincí za kus.",
+                                      sk: "Dnes vykupujem %@ drahšie: %d mincí za kus.",
+                                      en: "Buying %@ at a better price today: %d coins each.")
+        static let tradeHeader = T(cs: "Nákup a prodej", sk: "Nákup a predaj", en: "Buy and sell")
+        static let youHave = T(cs: "Máš %d", sk: "Máš %d", en: "You have %d")
+        static let buyFor = T(cs: "Koupit · %d", sk: "Kúpiť · %d", en: "Buy · %d")
+        static let sellFor = T(cs: "Prodat · %d", sk: "Predať · %d", en: "Sell · %d")
+        static let swapHeader = T(cs: "Výměna", sk: "Výmena", en: "Swap")
+        static let swapFrom = T(cs: "Dám", sk: "Dám", en: "Give")
+        static let swapTo = T(cs: "Chci", sk: "Chcem", en: "Want")
+        static let swapButton = T(cs: "Vyměnit %@ → %@", sk: "Vymeniť %@ → %@", en: "Swap %@ → %@")
+        static let hallBonus = T(cs: "Tržiště ve městě přidá třetí denní prosbu a zlepší výkupní cenu na 75 % místo 65 %.",
+                                 sk: "Trhovisko v meste pridá tretiu dennú prosbu a zlepší výkupnú cenu na 75 % namiesto 65 %.",
+                                 en: "A market hall in town adds a third daily request and raises buy-back to 75% instead of 65%.")
+        static let hallActive = T(cs: "Díky Tržišti máš každý den tři prosby a výkupní cenu 75 % místo 65 %.",
+                                  sk: "Vďaka Trhovisku máš každý deň tri prosby a výkupnú cenu 75 % namiesto 65 %.",
+                                  en: "Your market hall brings three daily requests and a 75% buy-back rate instead of 65%.")
+        static let topUp = T(cs: "Dokoupit za %@", sk: "Dokúpiť za %@", en: "Buy the rest for %@")
+        static let mapBadge = T(cs: "Obchodník má nabídku", sk: "Obchodník má ponuku", en: "The trader has an offer")
+
+        // Stories: %1$@ = what the player gives, %2$@ = what they get. Amounts
+        // only ever stand as objects ("dej mi 4 cihly"), never as a subject,
+        // because Czech and Slovak verbs agree differently with 1, 2–4 and 5+.
+        // Each pool has twelve stories (see Market.storyStride).
+        static let storiesForCoins: [T] = [
+            T(cs: "Nutně potřebuju %1$@ do kovárny. Zaplatím ti %2$@!",
+              sk: "Nutne potrebujem %1$@ do kováčskej dielne. Zaplatím ti %2$@!",
+              en: "I urgently need %1$@ for the forge. I'll pay you %2$@!"),
+            T(cs: "Zítra jedu na trh do vedlejšího města a chybí mi %1$@. Dám ti za to %2$@.",
+              sk: "Zajtra idem na trh do susedného mesta a chýba mi %1$@. Dám ti za to %2$@.",
+              en: "I'm off to the market in the next town tomorrow and I'm short of %1$@. I'll give you %2$@ for it."),
+            T(cs: "Zákazník si objednal něco, co nemám skladem. Prodáš mi %1$@ za %2$@?",
+              sk: "Zákazník si objednal niečo, čo nemám na sklade. Predáš mi %1$@ za %2$@?",
+              en: "A customer ordered something I don't have. Will you sell me %1$@ for %2$@?"),
+            T(cs: "Starosta chce do neděle novou lavičku na náměstí. Seženeš mi %1$@? Platím %2$@.",
+              sk: "Starosta chce do nedele novú lavičku na námestí. Zoženieš mi %1$@? Platím %2$@.",
+              en: "The mayor wants a new bench on the square by Sunday. Can you find me %1$@? I'm paying %2$@."),
+            T(cs: "Kachna z rybníka mi v noci rozházela celý vozík. Potřebuju %1$@ a dám ti %2$@.",
+              sk: "Kačica z rybníka mi v noci rozhádzala celý vozík. Potrebujem %1$@ a dám ti %2$@.",
+              en: "The duck from the pond scattered my whole cart last night. I need %1$@ and I'll give you %2$@."),
+            T(cs: "Bouřka mi odnesla půl nákladu. Za %1$@ ti dám %2$@ a ani nebudu smlouvat.",
+              sk: "Búrka mi odniesla pol nákladu. Za %1$@ ti dám %2$@ a ani nebudem jednať.",
+              en: "The storm took half my load. For %1$@ I'll give you %2$@, no haggling."),
+            T(cs: "Babička Anežka chce nový kurník. Já jsem jen prostředník: %1$@ za %2$@.",
+              sk: "Babka Anežka chce nový kurín. Ja som len sprostredkovateľ: %1$@ za %2$@.",
+              en: "Granny Anežka wants a new henhouse. I'm only the middleman: %1$@ for %2$@."),
+            T(cs: "Na hradě chystají slavnost a kastelán shání %1$@. Posílá ti %2$@.",
+              sk: "Na hrade chystajú slávnosť a kastelán zháňa %1$@. Posiela ti %2$@.",
+              en: "The castle is planning a feast and the steward is after %1$@. He's sending you %2$@."),
+            T(cs: "Vsadil jsem se s kovářem, že do večera seženu %1$@. Pomoz mi vyhrát a dostaneš %2$@!",
+              sk: "Stavil som sa s kováčom, že do večera zoženiem %1$@. Pomôž mi vyhrať a dostaneš %2$@!",
+              en: "I bet the smith I could find %1$@ by tonight. Help me win and you'll get %2$@!"),
+            T(cs: "Přišla objednávka až z daleké země a chybí mi %1$@. Zaplatím %2$@ hned na ruku.",
+              sk: "Prišla objednávka až z ďalekej krajiny a chýba mi %1$@. Zaplatím %2$@ hneď na ruku.",
+              en: "An order came all the way from a faraway land and I'm short of %1$@. %2$@, cash in hand."),
+            T(cs: "Vozík se mi viklá a na opravu potřebuju %1$@. Vezmi si %2$@, jen ať drží kola.",
+              sk: "Vozík sa mi kýve a na opravu potrebujem %1$@. Vezmi si %2$@, len nech držia kolesá.",
+              en: "My cart is wobbling and I need %1$@ to fix it. Take %2$@, as long as the wheels stay on."),
+            T(cs: "Pekař slíbil celé vsi koláče, jenže mu spadla pec. Za %1$@ ti pošle %2$@.",
+              sk: "Pekár sľúbil celej dedine koláče, lenže mu spadla pec. Za %1$@ ti pošle %2$@.",
+              en: "The baker promised the whole village pies, then his oven collapsed. For %1$@ he'll send you %2$@."),
+        ]
+        static let storiesSwap: [T] = [
+            T(cs: "Opravuju střechu obchodu a něco mi chybí. Dáš mi %1$@? Na oplátku ti dám %2$@.",
+              sk: "Opravujem strechu obchodu a niečo mi chýba. Dáš mi %1$@? Na oplátku ti dám %2$@.",
+              en: "I'm fixing the shop roof and I'm short of something. Will you give me %1$@? You'll get %2$@ in return."),
+            T(cs: "Stavím novou pec. Za %1$@ ti dám %2$@, co mi tu zbylo.",
+              sk: "Staviam novú pec. Za %1$@ ti dám %2$@, čo mi tu zostalo.",
+              en: "I'm building a new oven. For %1$@ I'll give you the %2$@ I have left over."),
+            T(cs: "Sousedka potřebuje opravit plot. Když mi dáš %1$@, dostaneš ode mě %2$@.",
+              sk: "Susedka potrebuje opraviť plot. Keď mi dáš %1$@, dostaneš odo mňa %2$@.",
+              en: "My neighbour needs her fence mended. Give me %1$@ and you'll have %2$@ from me."),
+            T(cs: "Mlynář mi zaplatil ve zboží, ne v penězích. Dáš mi %1$@? Vezmi si za to %2$@.",
+              sk: "Mlynár mi zaplatil v tovare, nie v peniazoch. Dáš mi %1$@? Vezmi si za to %2$@.",
+              en: "The miller paid me in goods, not coins. Will you give me %1$@? Take %2$@ for it."),
+            T(cs: "Tohle vezu už třetí týden a pořád mi to překáží. Vyměníš mi %1$@ za %2$@?",
+              sk: "Toto veziem už tretí týždeň a stále mi to zavadzia. Vymeníš mi %1$@ za %2$@?",
+              en: "I've been hauling this for three weeks and it's always in the way. Swap me %1$@ for %2$@?"),
+            T(cs: "Hodinář chce opravit věž s hodinami a shání %1$@. Za to ti dám %2$@.",
+              sk: "Hodinár chce opraviť vežu s hodinami a zháňa %1$@. Za to ti dám %2$@.",
+              en: "The clockmaker wants to mend the clock tower and needs %1$@. I'll give you %2$@ for it."),
+            T(cs: "Výměnný obchod jako za starých časů: ty mi %1$@, já tobě %2$@. Plácneme si?",
+              sk: "Výmenný obchod ako za starých čias: ty mne %1$@, ja tebe %2$@. Plesneme si?",
+              en: "A trade like in the old days: you give me %1$@, I give you %2$@. Shake on it?"),
+            T(cs: "Na rozcestí jsem potkal stavitele mostů. Chce %1$@ a nechal mi pro tebe %2$@.",
+              sk: "Na rázcestí som stretol staviteľa mostov. Chce %1$@ a nechal mi pre teba %2$@.",
+              en: "I met a bridge builder at the crossroads. He wants %1$@ and left %2$@ for you."),
+            T(cs: "Vozík už sténá pod tou váhou. Vezmi si %2$@ a dej mi za to %1$@, ulevíš mi.",
+              sk: "Vozík už stoná pod tou váhou. Vezmi si %2$@ a daj mi za to %1$@, uľavíš mi.",
+              en: "The cart is groaning under the weight. Take %2$@ and give me %1$@ for it, you'd be doing me a favour."),
+            T(cs: "Pes z náměstí mi zakopal půlku zásob. Zbylo mi %2$@ a potřebuju %1$@. Vyměníme?",
+              sk: "Pes z námestia mi zahrabal polovicu zásob. Zostalo mi %2$@ a potrebujem %1$@. Vymeníme?",
+              en: "The dog from the square buried half my stock. I've got %2$@ left and need %1$@. Swap?"),
+            T(cs: "Ve vedlejší vsi staví školu. Za %1$@ ti přenechám %2$@, co mi odtamtud zbylo.",
+              sk: "V susednej dedine stavajú školu. Za %1$@ ti prenechám %2$@, čo mi odtiaľ zostalo.",
+              en: "They're building a school in the next village. For %1$@ you can have the %2$@ I had left from there."),
+            T(cs: "Hádal jsem se s ženou, co vyložit dřív. Vyhrála, takže ti nabízím %2$@ za %1$@.",
+              sk: "Hádal som sa so ženou, čo vyložiť skôr. Vyhrala, takže ti ponúkam %2$@ za %1$@.",
+              en: "My wife and I argued about what to unload first. She won, so I'm offering you %2$@ for %1$@."),
+        ]
+        static let storiesSurplus: [T] = [
+            T(cs: "Tamhle se mi válí %2$@ a jen mi to zabírá místo. Dej mi %1$@ a je to tvoje.",
+              sk: "Tamto sa mi váľa %2$@ a len mi to zaberá miesto. Daj mi %1$@ a je to tvoje.",
+              en: "I've got %2$@ just taking up space over there. Give me %1$@ and it's yours."),
+            T(cs: "Vyklízím sklad před zimou. Nechám ti %2$@ za pouhých %1$@.",
+              sk: "Vypratávam sklad pred zimou. Nechám ti %2$@ len za %1$@.",
+              en: "Clearing out the store before winter. You can have %2$@ for just %1$@."),
+            T(cs: "Někdo si objednal %2$@ a pak si to rozmyslel. Pro tebe za %1$@.",
+              sk: "Niekto si objednal %2$@ a potom si to rozmyslel. Pre teba za %1$@.",
+              en: "Someone ordered %2$@ and then changed their mind. Yours for %1$@."),
+            T(cs: "Dnes mám dobrou náladu! Dám ti %2$@ za %1$@, jen to nikomu neříkej.",
+              sk: "Dnes mám dobrú náladu! Dám ti %2$@ za %1$@, len to nikomu nehovor.",
+              en: "I'm in a good mood today! %2$@ for %1$@, just don't tell anyone."),
+            T(cs: "Na cestě jsem našel opuštěný vůz. Prodám ti z něj %2$@ za %1$@.",
+              sk: "Na ceste som našiel opustený voz. Predám ti z neho %2$@ za %1$@.",
+              en: "I found an abandoned wagon on the road. I'll sell you %2$@ from it for %1$@."),
+            T(cs: "Tohle mi zbylo z jarmarku. Vezmi si %2$@ za %1$@, ať to nevezu zpátky přes kopec.",
+              sk: "Toto mi zostalo z jarmoku. Vezmi si %2$@ za %1$@, nech to neveziem späť cez kopec.",
+              en: "Left over from the fair. Take %2$@ for %1$@ so I don't haul it back over the hill."),
+            T(cs: "Z toho tahání už mě bolí záda. Odkup mi %2$@ za %1$@ a oba si oddechneme.",
+              sk: "Z toho ťahania ma už bolí chrbát. Odkúp mi %2$@ za %1$@ a obaja si vydýchneme.",
+              en: "My back aches from all this hauling. Buy %2$@ off me for %1$@ and we'll both breathe easier."),
+            T(cs: "Nakoupil jsem ve velkém a trochu to přehnal. Dám ti %2$@ za %1$@, levněji to nenajdeš.",
+              sk: "Nakúpil som vo veľkom a trochu to prehnal. Dám ti %2$@ za %1$@, lacnejšie to nenájdeš.",
+              en: "I bought in bulk and overdid it a little. %2$@ for %1$@, you won't find it cheaper."),
+            T(cs: "Zítra jedu do hor a nechci tahat zbytečnou váhu. Vezmi si %2$@ za %1$@.",
+              sk: "Zajtra idem do hôr a nechcem ťahať zbytočnú váhu. Vezmi si %2$@ za %1$@.",
+              en: "I'm off to the mountains tomorrow and don't want the extra weight. Take %2$@ for %1$@."),
+            T(cs: "Velký výprodej! Tedy… mám jen %2$@, ale za %1$@ je to tvoje.",
+              sk: "Veľký výpredaj! Teda… mám len %2$@, ale za %1$@ je to tvoje.",
+              en: "Big clearance sale! Well… I only have %2$@, but it's yours for %1$@."),
+            T(cs: "Starý přítel mi splatil dluh ve zboží, jenže já potřebuju mince. Dám ti %2$@ za %1$@.",
+              sk: "Starý priateľ mi splatil dlh v tovare, lenže ja potrebujem mince. Dám ti %2$@ za %1$@.",
+              en: "An old friend paid back a debt in goods, and I need coins. %2$@ for %1$@."),
+            T(cs: "Pro nejpilnějšího stavitele v kraji mám %2$@ za pouhých %1$@.",
+              sk: "Pre najusilovnejšieho staviteľa v kraji mám %2$@ len za %1$@.",
+              en: "For the hardest-working builder around: %2$@ for just %1$@."),
+        ]
     }
 
     enum settings {

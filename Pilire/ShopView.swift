@@ -172,47 +172,9 @@ struct ShopView: View {
                         Text(L(S.shop.balance))
                         Spacer()
                         HStack(spacing: 5) {
-                            Image(systemName: "seal.fill").foregroundStyle(.yellow)
+                            AppIcon(ResourceIcon.coin)
                             Text("\(settings.coinBalance)")
                                 .fontWeight(.bold).monospacedDigit()
-                        }
-                    }
-                }
-
-                Section(L(S.shop.exchange)) {
-                    ForEach(Material.allCases) { m in
-                        HStack(spacing: 14) {
-                            Image(systemName: m.symbolName)
-                                .font(.title3)
-                                .foregroundStyle(Color(red: m.tint.r, green: m.tint.g, blue: m.tint.b))
-                                .frame(width: 42, height: 42)
-                                .background(Color(red: m.tint.r, green: m.tint.g, blue: m.tint.b).opacity(0.12),
-                                            in: RoundedRectangle(cornerRadius: Theme.rowRadius))
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("1× \(m.displayName)").fontWeight(.semibold)
-                                Text(L(S.shop.youHave, settings.count(m))).font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Button {
-                                guard settings.coinBalance >= m.coinPrice else { return }
-                                settings.coinBalance -= m.coinPrice
-                                settings.add(m, 1)
-                                Haptics.tap()
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "seal.fill")
-                                        .font(.caption)
-                                        .foregroundStyle(settings.coinBalance >= m.coinPrice ? .yellow : .secondary)
-                                    Text("\(m.coinPrice)").fontWeight(.bold).monospacedDigit()
-                                }
-                                .padding(.horizontal, 12).padding(.vertical, 6)
-                                .background(settings.coinBalance >= m.coinPrice ? Color.orange : Color.secondary.opacity(0.2))
-                                .foregroundStyle(settings.coinBalance >= m.coinPrice ? Color.white : Color.secondary)
-                                .clipShape(Capsule())
-                                .font(.subheadline)
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(settings.coinBalance < m.coinPrice)
                         }
                     }
                 }
@@ -345,9 +307,9 @@ struct AnimalShopRow: View {
 
             Button(action: onBuy) {
                 HStack(spacing: 4) {
-                    Image(systemName: "seal.fill")
+                    AppIcon(ResourceIcon.coin)
                         .font(.caption)
-                        .foregroundStyle(canAfford ? .yellow : .secondary)
+                        .opacity(canAfford ? 1 : 0.45)
                     Text("\(kind.cost)").fontWeight(.bold).monospacedDigit()
                 }
                 .padding(.horizontal, 12).padding(.vertical, 6)
@@ -391,9 +353,9 @@ struct ShopRow: View {
                 onBuy()
             } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: "seal.fill")
+                    AppIcon(ResourceIcon.coin)
                         .font(.caption)
-                        .foregroundStyle(canAfford ? .yellow : .secondary)
+                        .opacity(canAfford ? 1 : 0.45)
                     Text("\(item.cost)").fontWeight(.bold).monospacedDigit()
                 }
                 .padding(.horizontal, 12).padding(.vertical, 6)

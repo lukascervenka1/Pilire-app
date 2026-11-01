@@ -68,7 +68,7 @@ struct ResourceInfoModifier: ViewModifier {
             }
             .sheet(isPresented: $show) {
                 VStack(spacing: 16) {
-                    Image(systemName: icon)
+                    AppIcon(icon)
                         .font(.system(size: 34))
                         .foregroundStyle(tint)
                         .frame(width: 72, height: 72)

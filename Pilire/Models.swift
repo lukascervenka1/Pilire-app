@@ -110,32 +110,36 @@ enum Material: String, Codable, CaseIterable, Identifiable {
     @MainActor
     func amount(_ n: Int) -> String {
         switch Language.shared.current {
+        // Wood and steel are mass nouns: "2 oceli" sounds wrong, so they are
+        // counted in pieces ("2 kusy oceli"). Bricks count on their own.
         case .cs:
+            let pieces = n == 1 ? "kus" : (2...4).contains(n) ? "kusy" : "kusů"
             switch self {
-            case .wood:  n == 1 ? "1 dřevo" : "\(n) dřeva"
-            case .brick: n == 1 ? "1 cihla" : (n <= 4 ? "\(n) cihly" : "\(n) cihel")
-            case .steel: n == 1 ? "1 ocel"  : "\(n) oceli"
+            case .wood:  return "\(n) \(pieces) dřeva"
+            case .brick: return n == 1 ? "1 cihla" : (n <= 4 ? "\(n) cihly" : "\(n) cihel")
+            case .steel: return "\(n) \(pieces) oceli"
             }
         case .sk:
+            let pieces = n == 1 ? "kus" : (2...4).contains(n) ? "kusy" : "kusov"
             switch self {
-            case .wood:  n == 1 ? "1 drevo" : "\(n) dreva"
-            case .brick: n == 1 ? "1 tehla" : (n <= 4 ? "\(n) tehly" : "\(n) tehál")
-            case .steel: n == 1 ? "1 oceľ"  : "\(n) ocele"
+            case .wood:  return "\(n) \(pieces) dreva"
+            case .brick: return n == 1 ? "1 tehla" : (n <= 4 ? "\(n) tehly" : "\(n) tehál")
+            case .steel: return "\(n) \(pieces) ocele"
             }
         case .en:
             switch self {
-            case .wood:  "\(n) wood"
-            case .brick: n == 1 ? "1 brick" : "\(n) bricks"
-            case .steel: "\(n) steel"
+            case .wood:  return "\(n) wood"
+            case .brick: return n == 1 ? "1 brick" : "\(n) bricks"
+            case .steel: return "\(n) steel"
             }
         }
     }
 
     var symbolName: String {
         switch self {
-        case .wood:  "tree.fill"
-        case .brick: "square.stack.3d.up.fill"
-        case .steel: "gearshape.2.fill"
+        case .wood:  "ResourceWood"
+        case .brick: "ResourceBrick"
+        case .steel: "ResourceSteel"
         }
     }
 
